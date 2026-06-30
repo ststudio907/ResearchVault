@@ -1,8 +1,23 @@
-/*
-
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-If your plugin does not need CSS, delete this file.
-
+/* ResearchVault styles
+   Loaded by Obsidian if present. Tokens lean on Obsidian's own variables
+   so the plugin participates cleanly in dark / light / custom themes.
 */
+
+.rv-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.rv-project-list .setting-item {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 6px;
+}
+
+.rv-plugin-callout {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  padding: 6px 10px;
+  border-radius: 4px;
+}

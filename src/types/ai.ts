@@ -42,7 +42,7 @@ export interface RetrievedContext {
 
 export interface AIRequest {
   type: 'summarize' | 'chat' | 'extract_claims' | 'find_gaps' | 'synthesize';
-  payload: any;
+  payload: unknown;
   projectScope?: string;           // Limit to project
   paperIds?: string[];             // Limit to specific papers
 }

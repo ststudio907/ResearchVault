@@ -38,7 +38,7 @@ export interface Paper {
   limitations?: string[];
   
   // Custom fields from project
-  customFields: Record<string, any>;
+  customFields: Record<string, unknown>;
   
   // Source metadata
   source: PaperSource;

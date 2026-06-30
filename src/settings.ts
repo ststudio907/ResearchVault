@@ -1,38 +1,109 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
-import MyPlugin from './main';
+// src/settings.ts
+//
+// Top-level plugin settings. Persisted via Obsidian's `Plugin#saveData`.
+// Schema is versioned (`settings.version`) so future migrations can run from
+// `migrateSettings(loaded)` rather than mutating in place later.
+//
 
-export interface MyPluginSettings {
-	mySetting: string;
+import type { AIConfig, Project, CitationStyle } from './types';
+import { DEFAULT_CITATION_STYLE } from './types';
+
+/** Maximum value of `version` this build knows how to migrate from. Bump when shape changes. */
+export const CURRENT_SETTINGS_VERSION = '1' as const;
+
+export interface TemplateConfig {
+  paper: string;
+  note: string;
+  dailyNote: string;
 }
 
-export const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default',
+export interface ResearchVaultSettings {
+  /** Schema version. Launcher for `migrateSettings`. */
+  version: typeof CURRENT_SETTINGS_VERSION;
+  projects: Project[];
+  templates: TemplateConfig;
+  globalCitationStyle: CitationStyle;
+  globalExcludedFolders: string[];
+  ai: AIConfig;
+}
+
+export const DEFAULT_TEMPLATES: TemplateConfig = {
+  paper: `# {{title}}
+
+> Authors: {{authors}} ({{year}}). {{venue}}.
+
+## Summary
+<!-- One paragraph framing of the paper -->
+
+## Key points
+- 
+
+## Methodology
+
+## Results
+
+## Critique / questions
+- 
+
+## Connections
+- 
+`,
+  note: `# {{title}}
+
+## Idea
+<!-- atomic idea statement -->
+
+## Evidence
+<!-- supporting quotes / citekey references -->
+
+## Implications
+<!-- what this means for the project -->
+`,
+  dailyNote: `# {{date}}
+
+## Today's focus
+- 
+
+## Captured references
+- 
+`,
 };
 
-export class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+export const DEFAULT_SETTINGS: ResearchVaultSettings = {
+  version: CURRENT_SETTINGS_VERSION,
+  projects: [],
+  templates: DEFAULT_TEMPLATES,
+  globalCitationStyle: DEFAULT_CITATION_STYLE,
+  globalExcludedFolders: ['.trash'],
+  ai: {
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    maxTokens: 4096,
+    temperature: 0.7,
+    enableSummarization: false,
+    enableChat: false,
+    enableSuggestions: false,
+    currentMonthUsage: 0,
+  },
+};
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Settings #1')
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder('Enter your secret')
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					}),
-			);
-	}
+/**
+ * Forward-compatible migration entry point. Newer versions should add new
+ * cases here; older clients receiving a newer payload should be handled by
+ * the version check in `ResearchVaultPlugin.onload` (downgrade is unsupported).
+ */
+export function migrateSettings(raw: unknown): ResearchVaultSettings {
+  if (!raw || typeof raw !== 'object') {
+    return structuredClone(DEFAULT_SETTINGS);
+  }
+  const candidate = raw as Partial<ResearchVaultSettings>;
+  // For now everything is version 1. Future migrations slot in here.
+  return {
+    ...structuredClone(DEFAULT_SETTINGS),
+    ...candidate,
+    ai: { ...DEFAULT_SETTINGS.ai, ...(candidate.ai ?? {}) },
+    templates: { ...DEFAULT_TEMPLATES, ...(candidate.templates ?? {}) },
+    projects: Array.isArray(candidate.projects) ? candidate.projects : [],
+    version: CURRENT_SETTINGS_VERSION,
+  };
 }

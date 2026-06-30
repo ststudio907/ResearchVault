@@ -1,5 +1,7 @@
 // src/types/project.ts
 
+import type { ReadingStatus } from './literature';
+
 export interface Project {
   id: string;                    // UUID
   name: string;                  // Display name
@@ -27,10 +29,39 @@ export interface CustomField {
   type: 'text' | 'number' | 'date' | 'select' | 'multiselect';
   options?: string[];            // For select/multiselect
   required: boolean;
-  defaultValue?: any;
+  defaultValue?: string | number | string[] | undefined;
 }
 
 export type CitationStyle = 'apa' | 'mla' | 'chicago' | 'ieee' | 'harvard' | 'custom';
+
+/**
+ * Const-asserted array of every supported citation style.
+ * Used by UI dropdowns in settings tab and create-project modal.
+ */
+export const CITATION_STYLES: readonly CitationStyle[] = [
+  'apa',
+  'mla',
+  'chicago',
+  'ieee',
+  'harvard',
+  'custom',
+] as const;
+
+/** Default citation style when a user does not pick one explicitly. */
+export const DEFAULT_CITATION_STYLE: CitationStyle = 'apa';
+
+/**
+ * Input shape consumed by `ProjectManager.createProject()`.
+ * Distinct from `Project` so callers cannot supply `id`, `createdAt`,
+ * persistence-managed timestamps, or the `isActive` flag.
+ */
+export interface ProjectCreateConfig {
+  name: string;
+  folderPath: string;
+  description?: string;
+  citationStyle?: CitationStyle;
+  paperTemplate?: string;
+}
 
 export interface ProjectStats {
   totalPapers: number;

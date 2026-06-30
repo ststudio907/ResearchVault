@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "researchvault",
+	"name": "ResearchVault",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"minAppVersion": "1.6.6",
+	"description": "Turn your vault into a research operating system: manage projects, track papers, capture quotes, and synthesize across sources.",
+	"author": "ResearchVault contributors",
+	"authorUrl": "https://github.com/obsidianmd/ResearchVault",
 	"isDesktopOnly": false
 }
