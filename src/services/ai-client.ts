@@ -69,7 +69,3 @@ export class AIClient {
     return new Error(`AIClient.${method} is not implemented yet (Sprint 4 — see plans/plan.md §7).`);
   }
 }
-
-// Type kept here so the type imports above are recognised as exported
-// re-uses the same vocabulary as `types/ai.ts`. (No runtime side effects.)
-type _AIConfigReference = AIConfig;

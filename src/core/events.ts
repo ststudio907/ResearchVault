@@ -5,7 +5,7 @@
 // source of truth and Vim/IDE "Go to type" lands in one place.
 //
 
-import type { Project, ProjectStats, Paper, AIRequest, AIResponse } from '../types';
+import type { Project, ProjectStats, Paper, Quote, AIRequest, AIResponse } from '../types';
 
 export interface ResearchVaultEvents {
   /** Emitted when any project's creation, update, or activation happens. */
@@ -16,6 +16,8 @@ export interface ResearchVaultEvents {
   paperImported: Paper;
   /** Emitted when a paper's status or priority changes. */
   paperStatusChanged: Paper;
+  /** Emitted when a quote is appended to a paper (editor capture or PDF extraction). */
+  quoteAdded: { paper: Paper; quote: Quote };
   /** Emitted right before a network AI call goes out. */
   aiRequestStarted: AIRequest;
   /** Emitted when an AI call returns (success or failure). */

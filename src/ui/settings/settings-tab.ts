@@ -8,6 +8,7 @@
 import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import { CITATION_STYLES, AI_PROVIDERS } from '../../types';
+import { ConfirmModal } from '../modals/confirm-modal';
 
 export class ResearchVaultSettingTab extends PluginSettingTab {
   /** Alias keeps `this.plugin.settings` lines short without a confused `plugin.plugin`. */
@@ -114,7 +115,13 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           .setButtonText('Delete')
           .setWarning()
           .onClick(async () => {
-            const ok = confirm(`Delete project "${project.name}"? Files on disk are untouched.`);
+            const ok = await ConfirmModal.ask(this.app, {
+              title: 'Delete project',
+              message: `Delete project "${project.name}"?\n\nFiles on disk are untouched.`,
+              confirmLabel: 'Delete',
+              cancelLabel: 'Cancel',
+              destructive: true,
+            });
             if (!ok) return;
             await this.rv.projectManager.deleteProject(project.id);
             this.display();

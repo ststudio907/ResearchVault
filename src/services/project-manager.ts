@@ -14,6 +14,20 @@ import type { ResearchVaultPlugin } from '../core/plugin';
 
 export type { Project, ProjectCreateConfig };
 
+/** Standard folder layout inside every ResearchVault project. */
+export interface ProjectFolders {
+  root: string;
+  papers: string;
+  notes: string;
+  literature: string;
+  pdfs: string;
+}
+
+/** Join two vault path segments with Obsidian's `normalizePath` so slashes and slugs are handled the plugin-wide way. */
+function joinPath(parent: string, child: string): string {
+  return normalizePath(`${parent}/${child}`);
+}
+
 /**
  * Owns a project's lifecycle: folder binding, activation invariant, stats,
  * and file filtering. Emits events through the plugin's EventBus.
@@ -141,7 +155,7 @@ export class ProjectManager {
 
   /** Permanently remove a project record from settings. Does NOT delete its folder from the vault. */
   async deleteProject(id: string): Promise<void> {
-    const project = this.requireProject(id);
+    this.requireProject(id);
     this.plugin.settings.projects = this.plugin.settings.projects.filter(
       (p) => p.id !== id,
     );
@@ -181,6 +195,41 @@ export class ProjectManager {
       this.plugin.settings.projects.find((p) => p.id === this.activeId) ??
       null
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // Folder scaffolding (Sprint 2 — used by PaperService)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Return a fully-normalized path to the standard `papers/` subfolder for a project.
+   * Does not touch the disk; pair with `ensureProjectFolders` to create it.
+   */
+  getProjectPapersFolder(projectId: string): string {
+    const project = this.requireProject(projectId);
+    return joinPath(project.folderPath, 'papers');
+  }
+
+  /**
+   * Create the standard subfolder layout for a project. Idempotent — existing
+   * folders are left alone. Used by `PaperService` before it writes its first
+   * paper note, and exposed so future modals can rely on the layout existing.
+   */
+  async ensureProjectFolders(projectId: string): Promise<ProjectFolders> {
+    const project = this.requireProject(projectId);
+    const root = project.folderPath;
+    const folders: ProjectFolders = {
+      root,
+      papers: joinPath(root, 'papers'),
+      notes: joinPath(root, 'notes'),
+      literature: joinPath(root, 'literature'),
+      pdfs: joinPath(root, 'pdfs'),
+    };
+    await this.ensureFolder(folders.papers);
+    await this.ensureFolder(folders.notes);
+    await this.ensureFolder(folders.literature);
+    await this.ensureFolder(folders.pdfs);
+    return folders;
   }
 
   // -------------------------------------------------------------------------

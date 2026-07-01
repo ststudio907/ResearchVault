@@ -5,16 +5,19 @@
 // stay the single source of truth for plugin-wide wiring.
 //
 
-import { Plugin, Notice, TFolder } from 'obsidian';
+import { Plugin, Notice, WorkspaceLeaf } from 'obsidian';
 import {
   ResearchVaultSettings,
   migrateSettings,
 } from '../settings';
 import { ProjectManager } from '../services/project-manager';
+import { PaperService } from '../services/paper-service';
 import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
+import { PaperImportModal } from '../ui/modals/paper-import-modal';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
+import { ProjectsSidebarView, VIEW_TYPE_RESEARCHVAULT_SIDEBAR } from '../ui/views/projects-sidebar-view';
 
 /**
  * Typed wrapper around the raw `Map<eventName, EventEmitter>`. Centralising
@@ -32,6 +35,7 @@ export type EventBus = {
 export class ResearchVaultPlugin extends Plugin {
   settings!: ResearchVaultSettings;
   projectManager!: ProjectManager;
+  paperService!: PaperService;
   eventBus!: EventBus;
 
   /** Pulled out so it can be invoked by `addCommand({ editorCallback })` and the settings tab alike. */
@@ -42,6 +46,36 @@ export class ResearchVaultPlugin extends Plugin {
   /** Companion to the create modal; lets the user re-target the active project without going through settings. */
   openSwitchProjectModal(): void {
     new SwitchProjectModal(this.app, this).open();
+  }
+
+  /** Open the manual paper-import modal. Routes to the active project by default. */
+  openAddPaperModal(): void {
+    if (this.projectManager.getAllProjects().length === 0) {
+      new Notice('Researchvault: create a project before adding a paper.');
+      return;
+    }
+    new PaperImportModal(this.app, this).open();
+  }
+
+  /**
+   * Reveal the projects sidebar in the right rail, creating a leaf on first
+   * call. Subsequent calls re-focus the existing leaf so the user can toggle
+   * the view without losing their place.
+   *
+   * `revealLeaf` was added in Obsidian 1.7.2 (we target 1.6.6). For an
+   * existing leaf we re-apply its view state with `active: true`, which
+   * brings it into focus across the versions we support. The `activeLeaf`
+   * field is deprecated, so we avoid it.
+   */
+  async openSidebar(): Promise<void> {
+    const { workspace } = this.app;
+    const existing = workspace.getLeavesOfType(VIEW_TYPE_RESEARCHVAULT_SIDEBAR)[0];
+    if (existing) {
+      await existing.setViewState({ type: VIEW_TYPE_RESEARCHVAULT_SIDEBAR, active: true });
+      return;
+    }
+    const leaf: WorkspaceLeaf = workspace.getRightLeaf(false) ?? workspace.getLeaf('split');
+    await leaf.setViewState({ type: VIEW_TYPE_RESEARCHVAULT_SIDEBAR, active: true });
   }
 
   async onload(): Promise<void> {
@@ -72,18 +106,21 @@ export class ResearchVaultPlugin extends Plugin {
     this.projectManager = new ProjectManager(this);
     this.projectManager.hydrate();
 
-    // 4. UI: ribbon + commands + settings tab.
-    this.addRibbonIcon('library', 'Open researchvault', () => {
-      const active = this.projectManager.getActiveProject();
-      if (!active) {
-        new Notice('Researchvault: no active project. Open the create project modal from settings → researchvault.');
-        return;
-      }
-      const folder = this.app.vault.getAbstractFileByPath(active.folderPath);
-      if (folder instanceof TFolder) {
-        // Fire-and-forget: openLinkText returns a promise we don't need to await on a hot button path.
-        void this.app.workspace.openLinkText(active.folderPath, '/', false);
-      }
+    this.paperService = new PaperService(this, this.projectManager);
+    // Hydrate is async; we don't block plugin load on it so the ribbon and
+    // commands are responsive immediately. Hydration emits no events the
+    // UI needs to react to before the first user action.
+    void this.paperService.hydrate();
+
+    // 4. UI: view registration, ribbon, commands, settings tab.
+    this.registerView(
+      VIEW_TYPE_RESEARCHVAULT_SIDEBAR,
+      (leaf) => new ProjectsSidebarView(leaf, this),
+    );
+
+    this.addRibbonIcon('library', 'Open researchvault sidebar', () => {
+      // Fire-and-forget: errors surface via the view's own error handling.
+      void this.openSidebar();
     });
 
     this.addCommand({
@@ -96,6 +133,20 @@ export class ResearchVaultPlugin extends Plugin {
       id: 'switch-project',
       name: 'Switch active project',
       callback: () => this.openSwitchProjectModal(),
+    });
+
+    this.addCommand({
+      id: 'add-paper',
+      name: 'Add paper',
+      callback: () => this.openAddPaperModal(),
+    });
+
+    this.addCommand({
+      id: 'open-sidebar',
+      name: 'Open sidebar',
+      callback: () => {
+        void this.openSidebar();
+      },
     });
 
     this.addSettingTab(new ResearchVaultSettingTab(this.app, this));
