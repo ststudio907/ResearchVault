@@ -16,6 +16,7 @@ import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
 import { PaperImportModal } from '../ui/modals/paper-import-modal';
+import { QuoteCaptureModal } from '../ui/modals/quote-capture-modal';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
 import { ProjectsSidebarView, VIEW_TYPE_RESEARCHVAULT_SIDEBAR } from '../ui/views/projects-sidebar-view';
 
@@ -55,6 +56,15 @@ export class ResearchVaultPlugin extends Plugin {
       return;
     }
     new PaperImportModal(this.app, this).open();
+  }
+
+  /** Open the quote-capture modal. Optionally pre-fill text from an editor selection or target a specific paper. */
+  openQuoteCaptureModal(options?: { selectedText?: string; defaultPaperId?: string }): void {
+    if (this.projectManager.getAllProjects().length === 0) {
+      new Notice('Researchvault: create a project before capturing a quote.');
+      return;
+    }
+    new QuoteCaptureModal(this.app, this, options).open();
   }
 
   /**
@@ -146,6 +156,22 @@ export class ResearchVaultPlugin extends Plugin {
       name: 'Open sidebar',
       callback: () => {
         void this.openSidebar();
+      },
+    });
+
+    // Capture quote from editor selection. The `editorCallback` signature lets
+    // Obsidian pre-fill the modal with whatever text the user has highlighted,
+    // so they can drop a quote without leaving their reading flow.
+    this.addCommand({
+      id: 'capture-quote',
+      name: 'Capture quote',
+      editorCallback: (editor) => {
+        const selection = editor.getSelection();
+        if (!selection || !selection.trim()) {
+          new Notice('Researchvault: select text in the editor first, then run "capture quote".');
+          return;
+        }
+        this.openQuoteCaptureModal({ selectedText: selection });
       },
     });
 

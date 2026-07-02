@@ -163,6 +163,17 @@ export class ProjectsSidebarView extends ItemView {
         cls: 'researchvault-sidebar-row-meta',
       });
 
+      // "Add quote" icon button — opens the capture modal pre-filled with this paper.
+      const quoteBtn = row.createEl('button', {
+        cls: 'clickable-icon researchvault-sidebar-quote-btn',
+        attr: { 'aria-label': 'Capture quote', title: 'Capture quote' },
+      });
+      setIcon(quoteBtn, 'pencil');
+      quoteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.rv.openQuoteCaptureModal({ defaultPaperId: paper.id });
+      });
+
       const select = row.createEl('select', { cls: 'dropdown researchvault-sidebar-status' });
       for (const candidate of READING_STATUSES) {
         select.createEl('option', { text: titleCase(candidate), value: candidate });

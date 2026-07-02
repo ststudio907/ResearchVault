@@ -22,6 +22,7 @@ import { renderTemplate, type TemplateData } from '../utils/template';
 import { newId } from '../utils/uuid';
 import type { ResearchVaultPlugin } from '../core/plugin';
 import type { ProjectManager } from './project-manager';
+import { PdfService } from './pdf-service';
 
 /** Keys we promise to round-trip via frontmatter. */
 type PaperFrontmatter = {
@@ -73,10 +74,18 @@ export class PaperService {
   private citekeyToId = new Map<string, string>();
   private initialized = false;
 
+  /** Shared PDF text extractor — lazy-initialized on first use. */
+  private pdfService?: PdfService;
+
   constructor(
     private readonly plugin: ResearchVaultPlugin,
     private readonly projectManager: ProjectManager,
   ) {}
+
+  private get _pdf(): PdfService {
+    if (!this.pdfService) this.pdfService = new PdfService();
+    return this.pdfService;
+  }
 
   // -------------------------------------------------------------------------
   // Lifecycle
@@ -224,8 +233,55 @@ export class PaperService {
     throw this.notImplemented('createFromDoi');
   }
 
-  async createFromPdf(_pdfPath: string, _projectId: string): Promise<Paper> {
-    throw this.notImplemented('createFromPdf');
+  /**
+   * Read a PDF file from the vault, extract its text, and persist a Paper record.
+   * The paper's `title` is derived from the filename (without extension) if no title is supplied.
+   */
+  async createFromPdf(pdfPath: string, projectId: string): Promise<Paper> {
+    const file = this.plugin.app.vault.getAbstractFileByPath(pdfPath);
+    if (!(file instanceof TFile)) throw new Error(`PaperService.createFromPdf: PDF not found at "${pdfPath}".`);
+
+    const arrayBuffer = await this.plugin.app.vault.readBinary(file);
+    const fullText = await this._pdf.extractFullText(arrayBuffer);
+
+    // Derive a human-readable title from the filename.
+    const stem = file.basename;
+    const citekey = generateUniqueCitekey({ year: new Date().getFullYear(), title: stem }, (k) => !this.getByCitekey(k));
+
+    const now = Date.now();
+    const paper: Paper = {
+      id: newId(),
+      citekey,
+      title: stem,
+      authors: [],
+      year: new Date().getFullYear(),
+      venue: undefined,
+      doi: undefined,
+      url: undefined,
+      pdfPath,
+      abstract: fullText.slice(0, 2000), // first ~2KB as a rough abstract placeholder
+      keywords: [],
+      status: 'unread',
+      priority: 'medium',
+      dateAdded: now,
+      dateModified: now,
+      quotes: [],
+      claims: [],
+      citations: [],
+      citedBy: [],
+      related: [],
+      customFields: {},
+      source: 'pdf',
+    };
+
+    // Persist the paper markdown file into the project's papers folder.
+    const papersFolder = this.projectManager.getProjectPapersFolder(projectId);
+    const notePath = `${papersFolder}/${citekey}.md`;
+    await this.plugin.app.vault.create(notePath, joinFrontmatter(toFrontmatter(paper), ''));
+
+    // Re-index so the in-memory map reflects the new paper.
+    await this.hydrate();
+    return this.byId.get(paper.id) ?? paper;
   }
 
   async importBibtex(_bibtex: string, _projectId: string): Promise<Paper[]> {
@@ -297,8 +353,42 @@ export class PaperService {
     return storedQuote;
   }
 
-  async extractQuotesFromPdf(_paperId: string): Promise<Quote[]> {
-    throw this.notImplemented('extractQuotesFromPdf');
+  /** Extract quote candidates from the paper's PDF and append them to the paper. */
+  async extractQuotesFromPdf(paperId: string): Promise<Quote[]> {
+    const paper = this.requireById(paperId);
+    if (!paper.pdfPath) throw new Error(`PaperService.extractQuotesFromPdf: paper "${paperId}" has no pdfPath.`);
+
+    const file = this.plugin.app.vault.getAbstractFileByPath(paper.pdfPath);
+    if (!(file instanceof TFile)) throw new Error(`PaperService.extractQuotesFromPdf: PDF not found at "${paper.pdfPath}".`);
+
+    const arrayBuffer = await this.plugin.app.vault.readBinary(file);
+    const candidates = await this._pdf.extractQuotesByPage(arrayBuffer);
+
+    for (const candidate of candidates) {
+      if (!candidate.text.trim()) continue;
+      const quote: Quote = {
+        id: newId(),
+        text: candidate.text,
+        page: candidate.pageIndex + 1, // Obsidian pages are 1-based
+        section: '',
+        tags: [],
+        createdAt: Date.now(),
+      };
+      paper.quotes.push(quote);
+
+      // Append to the on-disk note.
+      const noteFile = this.findPaperFile(paper);
+      if (noteFile) {
+        const existing = await this.plugin.app.vault.read(noteFile);
+        const { body } = splitFrontmatter(existing);
+        const section = renderQuoteSection(quote);
+        const heading = body.includes('## Quotes') ? '' : '## Quotes\n\n';
+        const nextBody = `${body.trimEnd()}\n\n${heading}${section}`;
+        await this.plugin.app.vault.modify(noteFile, joinFrontmatter(toFrontmatter(paper), nextBody));
+      }
+    }
+
+    return paper.quotes.slice(candidates.length); // return newly added quotes
   }
 
   // -------------------------------------------------------------------------
@@ -313,8 +403,40 @@ export class PaperService {
     throw this.notImplemented('addRelated');
   }
 
-  async findCitationsInPdf(_paperId: string): Promise<string[]> {
-    throw this.notImplemented('findCitationsInPdf');
+  /**
+   * Scan the paper's PDF text for inline citation patterns like "(Author, Year)" or "[Author Year]".
+   * Returns a deduplicated list of unique citations found.
+   */
+  async findCitationsInPdf(paperId: string): Promise<string[]> {
+    const paper = this.requireById(paperId);
+    if (!paper.pdfPath) throw new Error(`PaperService.findCitationsInPdf: paper "${paperId}" has no pdfPath.`);
+
+    const file = this.plugin.app.vault.getAbstractFileByPath(paper.pdfPath);
+    if (!(file instanceof TFile)) throw new Error(`PaperService.findCitationsInPdf: PDF not found at "${paper.pdfPath}".`);
+
+    const arrayBuffer = await this.plugin.app.vault.readBinary(file);
+    const fullText = await this._pdf.extractFullText(arrayBuffer);
+
+    // Match parenthetical citations: (Author, Year) or (Author et al., Year)
+    const parenRe = /\(([^)]+?,\s*(?:[A-Z][a-z]+(?:\s*&\s*[A-Z][a-z]+)*,?\s*)+(?:et\s*al\.?)?,?\s*\d{4})\)/gi;
+    // Match bracketed citations: [Author Year] or [Author et al. Year]
+    const bracketRe = /\[([^\]]+?,?\s*(?:et\s*al\.?)?\s*\d{4})\]/gi;
+
+    const seen = new Set<string>();
+    for (const match of fullText.matchAll(parenRe)) {
+      if (match[1]) {
+        const normalized = match[1].replace(/\s+/g, ' ').trim();
+        if (normalized.length > 5) seen.add(normalized);
+      }
+    }
+    for (const match of fullText.matchAll(bracketRe)) {
+      if (match[1]) {
+        const normalized = match[1].replace(/\s+/g, ' ').trim();
+        if (normalized.length > 5) seen.add(normalized);
+      }
+    }
+
+    return [...seen];
   }
 
   // -------------------------------------------------------------------------

@@ -11,6 +11,7 @@ export default tseslint.config(
 		'version-bump.mjs',
 		'versions.json',
 		'main.js',
+		'pdf.worker.min.mjs',
 		'package.json',
 		'package-lock.json',
 		'tsconfig.json',
