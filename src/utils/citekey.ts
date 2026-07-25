@@ -1,9 +1,13 @@
 // src/utils/citekey.ts
 //
 // Citekey formatting and generation. The output shape is the standard
-// `authorYYYYkeyword` form (with `-2 -3 …` suffix on collisions) — e.g.
-// `smith2023transformer`. Used by `PaperService.createManual` so the user
+// `author_YYYY_keyword` form (with `-2 -3 …` suffix on collisions) — e.g.
+// `smith_2023_transformer`. Used by `PaperService.createManual` so the user
 // gets a preview while filling out the import modal.
+//
+// D22 (3.1b): underscore-separated form, friendlier in plain text than
+// the old `authorYYYYkeyword` shape. Existing papers keep their old
+// citekey; this only affects new ones created after the upgrade.
 //
 // Kept dependency-free: diacritics collapse via Unicode NFD, non-ASCII
 // non-Latin falls back to a transliteration-safe prefix. No external lib.
@@ -13,13 +17,20 @@
  * Compose a base citekey from raw metadata. Strips non-portable characters
  * so the resulting string is always a safe filename slug.
  *
- * Rules:
+ * Rules (D22):
  *  - Author's last name lower-cased, diacritics collapsed to base letters.
  *  - 4-digit year, `s.a.` (no year) → "nd".
  *  - First significant title word, lower-cased, diacritics collapsed.
+ *  - Parts joined with `_` so the citekey reads like
+ *    `smith_2024_transformer` (BibTeX convention, friendlier in plain text).
  *
  * Example: `composeCitekey({ lastName: 'Müller', year: 2023, title: 'On Attention' })`
- * → `"muller2023attention"`.
+ * → `"muller_2023_attention"`.
+ *
+ * Existing papers that were written under the old no-separator form
+ * (`smith2023attention`) are NOT renamed. `PaperService.createManual` uses
+ * this function for *new* papers only; the existing file at the canonical
+ * path stays put until the user explicitly renames it.
  */
 export function composeCitekey(input: {
   lastName?: string;
@@ -30,7 +41,7 @@ export function composeCitekey(input: {
   const yearSlot = Number.isFinite(input.year) ? String(input.year) : 'nd';
   const keyword = firstKeyword(input.title ?? '');
   // author + year is always required per D7; the keyword is best-effort.
-  return [author, yearSlot, keyword].filter(Boolean).join('');
+  return [author, yearSlot, keyword].filter(Boolean).join('_');
 }
 
 /**

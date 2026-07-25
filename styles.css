@@ -21,3 +21,377 @@
   padding: 6px 10px;
   border-radius: 4px;
 }
+
+/* ----------------------------------------------------------------------- */
+/* Sidebar (3.1a) \u2014 search reorder, color hierarchy, Needs-action group  */
+/* ----------------------------------------------------------------------- */
+
+.researchvault-sidebar {
+  padding: 8px 10px 16px;
+  font-size: 0.9em;
+}
+
+.researchvault-sidebar-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.researchvault-sidebar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.researchvault-sidebar-title {
+  flex: 1 1 auto;
+  font-size: 1.1em;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.researchvault-sidebar-search {
+  width: 100%;
+  box-sizing: border-box;
+  /* Match the Add Paper button height so the header feels balanced. */
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.researchvault-sidebar-search:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.researchvault-sidebar-add {
+  width: 100%;
+  margin: 0;
+}
+
+.researchvault-sidebar-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 8px 0;
+}
+
+/* --- Group hierarchy --------------------------------------------------- */
+
+.researchvault-sidebar-group {
+  margin-top: 8px;
+}
+
+.researchvault-sidebar-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.95em;
+  font-weight: 600;
+  padding: 4px 6px 4px 8px;
+  border-radius: 3px;
+  /* Default border colour; status-specific groups override via --rv-accent. */
+  border-left: 3px solid var(--rv-group-accent, var(--background-modifier-border));
+  background: var(--background-secondary);
+}
+
+.researchvault-sidebar-group-heading > span:first-child {
+  flex: 1 1 auto;
+}
+
+.researchvault-sidebar-group-count {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.85em;
+  background: var(--background-primary);
+  border-radius: 8px;
+  padding: 1px 7px;
+}
+
+/* --- Status colour palette (D21) -------------------------------------- *
+ * Tokens lean on Obsidian variables where a sensible one exists, and use
+ * a small set of hand-picked accent colours elsewhere. The list is the
+ * single source of truth for status colours in the sidebar.
+ */
+
+.researchvault-sidebar-group--unread {
+  --rv-group-accent: var(--text-muted);
+}
+.researchvault-sidebar-group--queued {
+  --rv-group-accent: var(--interactive-accent);
+}
+.researchvault-sidebar-group--skimming {
+  --rv-group-accent: #d4a017;
+}
+.researchvault-sidebar-group--reading {
+  --rv-group-accent: #e07b39;
+}
+.researchvault-sidebar-group--annotating {
+  --rv-group-accent: #9b6dd7;
+}
+.researchvault-sidebar-group--summarized {
+  --rv-group-accent: #3fa672;
+}
+.researchvault-sidebar-group--synthesized {
+  --rv-group-accent: #2a8a8a;
+}
+.researchvault-sidebar-group--archived {
+  --rv-group-accent: var(--text-faint);
+  opacity: 0.7;
+}
+.researchvault-sidebar-group--excluded {
+  --rv-group-accent: var(--text-faint);
+  opacity: 0.6;
+}
+.researchvault-sidebar-group--excluded .researchvault-sidebar-row-title {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+
+/* --- Needs action \u2014 the derived top group (D20) ---------------------- */
+
+.researchvault-sidebar-group--needs-action {
+  --rv-group-accent: #d23f3f;
+}
+
+.researchvault-sidebar-group--needs-action
+  .researchvault-sidebar-group-heading {
+  background: rgba(210, 63, 63, 0.1);
+  color: #d23f3f;
+}
+
+.researchvault-sidebar-group--needs-action
+  .researchvault-sidebar-group-count {
+  background: rgba(210, 63, 63, 0.15);
+  color: #d23f3f;
+}
+
+/* --- Paper rows (3.1b) -----------------------------------------------
+ *
+ * Three lines + a date line, stacked vertically. Each line is its own
+ * wrapper so the right-edge icon column stays in the same horizontal
+ * position from row to row \u2014 the title icon (line 1) and the quote
+ * glyph (line 3) sit on the same vertical axis no matter what the
+ * control widths look like.
+ */
+
+.researchvault-sidebar-row {
+  padding: 6px 6px 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.researchvault-sidebar-row:last-child {
+  border-bottom: none;
+}
+
+.researchvault-sidebar-row-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.researchvault-sidebar-row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* --- Line 1: title + edit pencil (right) ---------------------------- */
+.researchvault-sidebar-row-line--title {
+  justify-content: space-between;
+}
+
+.researchvault-sidebar-row-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-normal);
+}
+
+.researchvault-sidebar-edit-btn {
+  flex: 0 0 auto;
+  padding: 0;
+  opacity: 0.7;
+}
+
+.researchvault-sidebar-edit-btn:hover {
+  opacity: 1;
+}
+
+/* --- Line 2: citekey / year / (needs-action tag) -------------------- */
+.researchvault-sidebar-row-line--meta {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.researchvault-sidebar-row-citekey {
+  font-family: var(--font-monospace);
+}
+
+.researchvault-sidebar-row-meta-sep {
+  opacity: 0.7;
+}
+
+.researchvault-sidebar-row-year {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Line 3: status + priority selects + quote glyph (right) -------- */
+.researchvault-sidebar-row-line--controls {
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.researchvault-sidebar-status,
+.researchvault-sidebar-priority {
+  flex: 0 0 auto;
+  min-width: 78px;
+  max-width: 110px;
+  font-size: 0.75em;
+  padding: 1px 4px;
+  height: 22px;
+}
+
+.researchvault-sidebar-priority {
+  min-width: 70px;
+}
+
+.researchvault-sidebar-quote-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0;
+  opacity: 0.7;
+}
+
+.researchvault-sidebar-quote-btn:hover {
+  opacity: 1;
+}
+
+.researchvault-sidebar-row-spacer {
+  display: none;
+}
+
+/* --- Date line (3.1b) ---------------------------------------------- */
+.researchvault-sidebar-row-line--date {
+  margin-top: 2px;
+  font-size: 0.7em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.researchvault-sidebar-row-date-label {
+  margin-right: 2px;
+}
+
+/* --- Needs-action reason tag --------------------------------------- */
+
+.researchvault-sidebar-row-tag {
+  margin-left: auto;
+  font-size: 0.7em;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(210, 63, 63, 0.12);
+  color: #d23f3f;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Paper import modal — PDF picker (2.6)                                 */
+/* ----------------------------------------------------------------------- */
+
+.researchvault-pdf-browse-btn {
+  white-space: nowrap;
+}
+
+/*
+ * The long help text used to live on the Setting row via setDesc(), which
+ * forced it into the right-hand control column next to the Attach PDF button.
+ * That column is narrow and the text wrapped to 4+ lines, visually squishing
+ * the button and shunting the drop zone into the same cramped slot.
+ *
+ * Fix: mount the help text as its own full-width block BELOW the row
+ * (rendered as .researchvault-pdf-help), and cap its width so it never
+ * pushes sibling rows.
+ */
+.researchvault-pdf-help {
+  display: block;
+  max-width: 480px;
+  margin: 6px 0 8px;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.researchvault-pdf-drop-zone {
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 0;
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.researchvault-pdf-drop-zone--active {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.researchvault-pdf-path-info {
+  margin-top: 6px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+}
+
+/* --- PDF picker modal ------------------------------------------------- */
+
+.researchvault-pdf-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 8px 0 16px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.researchvault-pdf-picker-row {
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.researchvault-pdf-picker-row:last-child {
+  border-bottom: none;
+}
+
+.researchvault-pdf-picker-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.researchvault-pdf-picker-path {
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  word-break: break-all;
+}

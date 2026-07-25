@@ -14,6 +14,7 @@
 import { App, Modal, Notice, Setting, TFolder, normalizePath } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import { CITATION_STYLES } from '../../types';
+import { applyStandardModalWidth } from './modal-width';
 
 /** Shared scaffolding so both modals inherit the same chrome. */
 abstract class BaseProjectModal extends Modal {
@@ -30,6 +31,7 @@ export class CreateProjectModal extends BaseProjectModal {
 
   onOpen(): void {
     const { contentEl } = this;
+    applyStandardModalWidth(this);
     contentEl.empty();
     contentEl.createEl('h2', { text: 'Create research project' });
 
@@ -124,6 +126,7 @@ export class CreateProjectModal extends BaseProjectModal {
 export class SwitchProjectModal extends BaseProjectModal {
   onOpen(): void {
     const { contentEl } = this;
+    applyStandardModalWidth(this);
     contentEl.empty();
     contentEl.createEl('h2', { text: 'Switch active project' });
 

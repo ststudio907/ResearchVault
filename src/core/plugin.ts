@@ -5,13 +5,16 @@
 // stay the single source of truth for plugin-wide wiring.
 //
 
-import { Plugin, Notice, WorkspaceLeaf } from 'obsidian';
+import { Plugin, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+import type { Paper, QuoteSource } from '../types';
 import {
   ResearchVaultSettings,
   migrateSettings,
 } from '../settings';
 import { ProjectManager } from '../services/project-manager';
 import { PaperService } from '../services/paper-service';
+import { VaultIndexer } from '../services/vault-indexer';
+import { CitationService } from '../services/citation/citation-service';
 import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
@@ -37,7 +40,16 @@ export class ResearchVaultPlugin extends Plugin {
   settings!: ResearchVaultSettings;
   projectManager!: ProjectManager;
   paperService!: PaperService;
+  vaultIndexer!: VaultIndexer;
   eventBus!: EventBus;
+  /**
+   * 4.1.A: lazily constructed. `onload` does NOT instantiate it — the modal
+   * (4.1.C) and the settings tab (4.1.D) call `ensureCitationService()` when
+   * the user actually engages. This keeps `onload` cheap for users who never
+   * enable the feature, and lets the LRU cache + rate limiter state be tied
+   * to the service lifetime rather than the plugin lifetime.
+   */
+  private citationService: CitationService | null = null;
 
   /** Pulled out so it can be invoked by `addCommand({ editorCallback })` and the settings tab alike. */
   openCreateProjectModal(): void {
@@ -59,12 +71,23 @@ export class ResearchVaultPlugin extends Plugin {
   }
 
   /** Open the quote-capture modal. Optionally pre-fill text from an editor selection or target a specific paper. */
-  openQuoteCaptureModal(options?: { selectedText?: string; defaultPaperId?: string }): void {
+  openQuoteCaptureModal(
+    options?: { selectedText?: string; defaultPaperId?: string; source?: QuoteSource },
+  ): void {
     if (this.projectManager.getAllProjects().length === 0) {
       new Notice('Researchvault: create a project before capturing a quote.');
       return;
     }
     new QuoteCaptureModal(this.app, this, options).open();
+  }
+
+  /**
+   * Open the paper-import modal in edit mode, pre-populated with the supplied
+   * paper's metadata. Used by the sidebar's edit-pencil button so the user
+   * can flip priority / status / keywords without leaving the list.
+   */
+  openEditPaperModal(paper: Paper): void {
+    new PaperImportModal(this.app, this, { paperToEdit: paper }).open();
   }
 
   /**
@@ -122,7 +145,16 @@ export class ResearchVaultPlugin extends Plugin {
     // UI needs to react to before the first user action.
     void this.paperService.hydrate();
 
-    // 4. UI: view registration, ribbon, commands, settings tab.
+    // Indexer is built on top of `paperService`, so it must come after.
+    this.vaultIndexer = new VaultIndexer(this);
+    this.vaultIndexer.hydrate();
+
+    // 4. Live sync from the vault (D23). We deliberately register these
+    // before the view/commands so the very first `paperUpdated` event after
+    // `hydrate` is caught by subscribers already in place.
+    this.registerVaultSync();
+
+    // 5. UI: view registration, ribbon, commands, settings tab.
     this.registerView(
       VIEW_TYPE_RESEARCHVAULT_SIDEBAR,
       (leaf) => new ProjectsSidebarView(leaf, this),
@@ -171,7 +203,7 @@ export class ResearchVaultPlugin extends Plugin {
           new Notice('Researchvault: select text in the editor first, then run "capture quote".');
           return;
         }
-        this.openQuoteCaptureModal({ selectedText: selection });
+        this.openQuoteCaptureModal({ selectedText: selection, source: 'editor' });
       },
     });
 
@@ -184,7 +216,45 @@ export class ResearchVaultPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.vaultIndexer?.dispose();
     this.eventBus?.clear();
+  }
+
+  /**
+   * Subscribe to vault filesystem events so live edits to paper notes
+   * propagate without a manual refresh — the sidebar subscribes to `paperUpdated`
+   * / `paperRemoved` and re-renders automatically.
+   *
+   * IMPORTANT: We do NOT trigger a `syncFromFile` on files we ourselves just
+   * wrote through `PaperService.updatePaper`/`addQuote` — those flow through
+   * `paperImported`/`paperUpdated` and then trigger `vault.on('modify')` once.
+   * The idempotent `papersEqual` short-circuit in `syncFromFile` keeps the loop
+   * cheap so we don't bother tracking the write source.
+   */
+  private registerVaultSync(): void {
+    this.registerEvent(
+      this.app.vault.on('modify', (file) => {
+        if (file instanceof TFile) {
+          // 2.8.D — re-stamp `dateModified` on every body-or-frontmatter
+          // edit. `syncFromFile` still owns frontmatter-only re-syncs; the
+          // 2-second loop guard inside `onPaperFileModified` keeps the
+          // re-entrant vault event from our own `persistPaper` write from
+          // re-stamping a second time.
+          void this.paperService.onPaperFileModified(file);
+          void this.paperService.syncFromFile(file);
+        }
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        void this.paperService.pathChanged({ oldPath, newPath: file.path });
+      }),
+    );
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        void this.paperService.pathChanged({ oldPath: file.path });
+      }),
+    );
   }
 
   /**
@@ -194,5 +264,23 @@ export class ResearchVaultPlugin extends Plugin {
    */
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * 4.1.A: Lazy getter for the citation orchestrator. The constructor reads
+   * `settings.citation` and `eventBus` — both are already initialized by the
+   * time the modal calls this method, so we can safely inline the construction.
+   *
+   * Callers (4.1.C modal, 4.1.D settings tab) can call this on every
+   * engagement; the getter is idempotent.
+   */
+  ensureCitationService(): CitationService {
+    if (!this.citationService) {
+      this.citationService = new CitationService({
+        settings: this.settings,
+        eventBus: this.eventBus,
+      });
+    }
+    return this.citationService;
   }
 }

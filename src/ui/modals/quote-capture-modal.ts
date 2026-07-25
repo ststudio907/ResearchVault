@@ -2,28 +2,38 @@
 //
 // Modal for capturing quotes from a paper. Opens when the user clicks "Add quote"
 // in the sidebar view or invokes the `capture-quote` command (which pre-fills
-// text from an editor selection). Captures text, page number, section, and
-// optional tags; persists via PaperService.addQuote.
+// text from an editor selection). Captures text, locator / page, section,
+// optional note, and tags; persists via PaperService.addQuote.
 //
-
 import { App, Modal, Notice, Setting } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
-import type { Paper, Quote } from '../../types';
+import type { Paper, QuoteInput, QuoteSource } from '../../types';
+import { applyStandardModalWidth } from './modal-width';
 
 export interface QuoteCaptureOptions {
   /** Pre-fill the quote text field (e.g., from an editor selection). */
   selectedText?: string;
   /** Default paper id — defaults to most recent import in the active project. */
   defaultPaperId?: string;
+  /**
+   * Provenance to stamp on the saved quote. Defaults to `'editor'` when the
+   * modal is opened from an editor context. Other capture surfaces (PDF
+   * extraction in 2.6, a future "Notes → quote" ribbon) can pass their
+   * own value.
+   */
+  source?: QuoteSource;
 }
 
 export class QuoteCaptureModal extends Modal {
   private papers: Paper[] = [];
   private selectedPaperId = '';
   private text = '';
+  private locator = '';
   private page = '';
   private section = '';
+  private note = '';
   private tags: string[] = [];
+  private readonly source: QuoteSource;
   private plugin!: ResearchVaultPlugin;
 
   constructor(
@@ -33,6 +43,7 @@ export class QuoteCaptureModal extends Modal {
   ) {
     super(app);
     this.plugin = plugin;
+    this.source = options.source ?? (options.selectedText ? 'editor' : 'manual');
     if (options.selectedText) this.text = options.selectedText;
     // Resolve default paper id from the active project's most recent import.
     const activeProject = plugin.projectManager.getActiveProject();
@@ -50,8 +61,13 @@ export class QuoteCaptureModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    applyStandardModalWidth(this);
     contentEl.empty();
     contentEl.createEl('h2', { text: 'Capture quote' });
+    contentEl.createEl('p', {
+      text: `Source: ${this.source}. The quote will be appended to the chosen paper's "## Quotes" section.`,
+      cls: 'setting-item-description',
+    });
 
     // Paper picker.
     new Setting(contentEl)
@@ -94,9 +110,24 @@ export class QuoteCaptureModal extends Modal {
       })
       .setClass('quote-capture-textarea');
 
-    // Page number.
+    // Free-form locator (e.g. "42", "42-43", "chap. 3 § 2"). Prefer over `page`
+    // because it can capture ranges, but we still keep `page` for back-compat.
     new Setting(contentEl)
-      .setName('Page number')
+      .setName('Locator')
+      .setDesc('Page number or range, e.g. "42" or "42-43".')
+      .addText((text) => {
+        text.setPlaceholder('42');
+        text.setValue(this.locator);
+        text.onChange((v) => {
+          this.locator = v;
+        });
+      });
+
+    // Numeric page number — preserved so existing exports that key on `page`
+    // keep working. Optional; the locator field is the modern path.
+    new Setting(contentEl)
+      .setName('Page number (legacy)')
+      .setDesc('Optional. Prefer the locator field above.')
       .addText((text) => {
         text.setPlaceholder('E.g., 42');
         text.setValue(this.page);
@@ -113,6 +144,19 @@ export class QuoteCaptureModal extends Modal {
         text.setValue(this.section);
         text.onChange((v) => {
           this.section = v;
+        });
+      });
+
+    // Optional user note — small commentary field separate from the quote
+    // itself. Renders below the blockquote in the paper note.
+    new Setting(contentEl)
+      .setName('Note (optional)')
+      .setDesc('Your own commentary on the quote. Not included in citations.')
+      .addTextArea((text) => {
+        text.setPlaceholder('Why does this matter to your project?');
+        text.setValue(this.note);
+        text.onChange((v) => {
+          this.note = v;
         });
       });
 
@@ -150,16 +194,21 @@ export class QuoteCaptureModal extends Modal {
         throw new Error('Quote text is required.');
       }
 
-      const quote: Omit<Quote, 'id'> = {
+      const trimmedLocator = this.locator.trim();
+      const pageNumber = this.page ? Number(this.page) : undefined;
+      const input: QuoteInput = {
         text: trimmedText,
-        page: this.page ? Number(this.page) : undefined,
+        locator: trimmedLocator || undefined,
+        page: Number.isFinite(pageNumber) ? pageNumber : undefined,
         section: this.section.trim() || undefined,
+        note: this.note.trim() || undefined,
         tags: this.tags,
         createdAt: Date.now(),
+        source: this.source,
       };
 
-      await this.plugin.paperService.addQuote(this.selectedPaperId, quote);
-      new Notice(`Researchvault: quote added.`);
+      await this.plugin.paperService.addQuote(this.selectedPaperId, input);
+      new Notice(`Researchvault: quote added (${this.source}).`);
       this.close();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

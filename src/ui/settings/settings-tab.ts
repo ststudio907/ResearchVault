@@ -25,6 +25,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     this.renderGeneral(containerEl);
     this.renderProjects(containerEl);
+    this.renderCitations(containerEl);
     this.renderAI(containerEl);
     this.renderTemplates(containerEl);
   }
@@ -128,6 +129,115 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           }),
       );
     }
+  }
+
+
+  // -------------------------------------------------------------------------
+  // Citations (4.1.D)
+  // -------------------------------------------------------------------------
+
+  private renderCitations(root: HTMLElement): void {
+    new Setting(root).setName("Citation lookup").setHeading();
+    root.createEl('p', {
+      text:
+        'Lookups send only the doi or search string. We do not send your vault contents, file names, or paper notes. No analytics. API responses are cached locally for 30 days.',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(root)
+      .setName('Enable citation lookup')
+      .addToggle((toggle) => {
+        toggle.setValue(Boolean(this.rv.settings.citation.enableCitationLookup));
+        toggle.onChange(async (value) => {
+          this.rv.settings.citation.enableCitationLookup = value;
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('Preferred provider')
+      .setDesc('Crossref is the canonical doi registry. Openalex covers a wider corpus.')
+      .addDropdown((dropdown) => {
+        dropdown.addOption('crossref', 'Crossref');
+        dropdown.addOption('openalex', 'Openalex');
+        dropdown.setValue(this.rv.settings.citation.preferredProvider);
+        dropdown.onChange(async (value) => {
+          this.rv.settings.citation.preferredProvider = value as typeof this.rv.settings.citation.preferredProvider;
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('Polite contact')
+      .setDesc('Optional mailto: for polite pool. Leave empty to stay anonymous (slower). Non-empty = faster.')
+      .addText((text) => {
+        text.setPlaceholder('you@example.com');
+        text.setValue(this.rv.settings.citation.politeContact);
+        text.onChange(async (value) => {
+          this.rv.settings.citation.politeContact = value;
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('Cache ttl (days)')
+      .setDesc('In-memory lru cache entry lifetime. Default 30.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.setValue(String(this.rv.settings.citation.cacheTtlDays));
+        text.onChange(async (value) => {
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            this.rv.settings.citation.cacheTtlDays = n;
+            await this.rv.saveSettings();
+          }
+        });
+      });
+
+    new Setting(root)
+      .setName('Cache max entries')
+      .setDesc('Maximum number of entries in the lru cache. Default 500.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.setValue(String(this.rv.settings.citation.cacheMaxEntries));
+        text.onChange(async (value) => {
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            this.rv.settings.citation.cacheMaxEntries = n;
+            await this.rv.saveSettings();
+          }
+        });
+      });
+
+    new Setting(root)
+      .setName('Rate limit (requests/sec)')
+      .setDesc('Token-bucket refill rate. Default 5.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.setValue(String(this.rv.settings.citation.rateLimitRps));
+        text.onChange(async (value) => {
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            this.rv.settings.citation.rateLimitRps = n;
+            await this.rv.saveSettings();
+          }
+        });
+      });
+
+    new Setting(root)
+      .setName('Rate limit burst')
+      .setDesc('Token-bucket capacity (burst). Default 10.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.setValue(String(this.rv.settings.citation.rateLimitBurst));
+        text.onChange(async (value) => {
+          const n = Number(value);
+          if (Number.isFinite(n) && n > 0) {
+            this.rv.settings.citation.rateLimitBurst = n;
+            await this.rv.saveSettings();
+          }
+        });
+      });
   }
 
   // -------------------------------------------------------------------------

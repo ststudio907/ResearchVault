@@ -5,7 +5,7 @@
 // rather than reaching into the individual files so refactors stay local.
 //
 
-import type { ReadingStatus, Priority } from './literature';
+import type { ReadingStatus, Priority, QuoteSource } from './literature';
 import type { AIConfig } from './ai';
 
 // ----- Project -----
@@ -28,6 +28,8 @@ export type {
   Paper,
   Author,
   Quote,
+  QuoteSource,
+  QuoteInput,
   Claim,
   ReadingStatus,
   Priority,
@@ -54,6 +56,13 @@ export const PRIORITIES: readonly Priority[] = [
   'critical',
 ] as const;
 
+/** Provenance values a Quote may carry. Kept in sync with `QuoteSource` in `literature.ts`. */
+export const QUOTE_SOURCES: readonly QuoteSource[] = [
+  'editor',
+  'pdf',
+  'manual',
+] as const;
+
 // ----- Notes -----
 export type {
   LiteratureNote,
@@ -61,6 +70,23 @@ export type {
   ConceptNote,
   ConceptClaim,
 } from './notes';
+
+// ----- Citation (4.1.A) -----
+// Barrel for the citation sub-module. Re-exporting from `services/citation/types`
+// rather than introducing a top-level `types/citation.ts` keeps the sub-module
+// self-contained — 4.1.B will add providers / orchestrator without churning
+// the public barrel.
+export type {
+  CitationProvider,
+  CitationSettings,
+  CitationProviderClient,
+  CslJsonRecord,
+  CitationLookupSucceeded,
+  CitationLookupFailed,
+  CitationLookupFailureReason,
+} from '../services/citation/types';
+
+export { DEFAULT_CITATION_SETTINGS } from '../services/citation/types';
 
 // ----- AI -----
 export type {

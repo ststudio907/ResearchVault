@@ -211,6 +211,17 @@ export class ProjectManager {
   }
 
   /**
+   * Return a fully-normalized path to the standard `pdfs/` subfolder for a project.
+   * Does not touch the disk; pair with `ensureProjectFolders` to create it. Used
+   * by `PaperService.createFromPdf` to land linked PDFs in a per-project folder
+   * rather than the user's drop-in location (D27).
+   */
+  getProjectPdfsFolder(projectId: string): string {
+    const project = this.requireProject(projectId);
+    return joinPath(project.folderPath, 'pdfs');
+  }
+
+  /**
    * Create the standard subfolder layout for a project. Idempotent — existing
    * folders are left alone. Used by `PaperService` before it writes its first
    * paper note, and exposed so future modals can rely on the layout existing.

@@ -8,6 +8,10 @@ export default tseslint.config(
 		'node_modules',
 		'dist',
 		'esbuild.config.mjs',
+		// `scripts/*.mjs` is plain Node, not TypeScript, so the
+		// `obsidianmd/no-plugin-as-component` rule (which needs type info)
+		// errors out on it. The file is small and self-contained.
+		'scripts/**',
 		'version-bump.mjs',
 		'versions.json',
 		'main.js',

@@ -8,7 +8,9 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"deploy": "node scripts/deploy-to-obsidian.mjs",
+		"deploy:build": "npm run build && npm run deploy"
 	},
 	"keywords": [
 		"obsidian",
@@ -32,6 +34,6 @@
 		"typescript-eslint": "^8.59.1"
 	},
 	"dependencies": {
-		"pdfjs-dist": "^4.10.38"
+		"fuse.js": "^7.4.2"
 	}
 }

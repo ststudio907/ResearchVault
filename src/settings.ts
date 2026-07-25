@@ -5,8 +5,8 @@
 // `migrateSettings(loaded)` rather than mutating in place later.
 //
 
-import type { AIConfig, Project, CitationStyle } from './types';
-import { DEFAULT_CITATION_STYLE } from './types';
+import type { AIConfig, Project, CitationStyle, CitationSettings } from './types';
+import { DEFAULT_CITATION_STYLE, DEFAULT_CITATION_SETTINGS } from './types';
 
 /** Maximum value of `version` this build knows how to migrate from. Bump when shape changes. */
 export const CURRENT_SETTINGS_VERSION = '1' as const;
@@ -25,6 +25,14 @@ export interface ResearchVaultSettings {
   globalCitationStyle: CitationStyle;
   globalExcludedFolders: string[];
   ai: AIConfig;
+  /**
+   * Citation lookup preferences (4.1.A). OFF by default per `D29` — no
+   * network identifier leaves the device until the user explicitly enables
+   * the feature in the Citations settings tab (4.1.D). The full shape lives
+   * in `CitationSettings` (services/citation/types.ts); we re-export it via
+   * the `types` barrel so consumers can `import { CitationSettings } from '../types'`.
+   */
+  citation: CitationSettings;
 }
 
 export const DEFAULT_TEMPLATES: TemplateConfig = {
@@ -85,6 +93,10 @@ export const DEFAULT_SETTINGS: ResearchVaultSettings = {
     enableSuggestions: false,
     currentMonthUsage: 0,
   },
+  // 4.1.A: `enableCitationLookup: false` per D29 — feature is off until the
+  // user explicitly opts in. `politeContact: ''` per Q2 — no identifier
+  // leaves the device by default. The settings tab (4.1.D) flips both.
+  citation: { ...DEFAULT_CITATION_SETTINGS },
 };
 
 /**
@@ -103,6 +115,10 @@ export function migrateSettings(raw: unknown): ResearchVaultSettings {
     ...candidate,
     ai: { ...DEFAULT_SETTINGS.ai, ...(candidate.ai ?? {}) },
     templates: { ...DEFAULT_TEMPLATES, ...(candidate.templates ?? {}) },
+    // 4.1.A: default-fill the citation block (L3 — the existing migrateSettings
+    // is a spread-merge, not a versioned switch). Older payloads that pre-date
+    // 4.1.A simply get a fresh `DEFAULT_CITATION_SETTINGS` block stamped in.
+    citation: { ...DEFAULT_CITATION_SETTINGS, ...(candidate.citation ?? {}) },
     projects: Array.isArray(candidate.projects) ? candidate.projects : [],
     version: CURRENT_SETTINGS_VERSION,
   };

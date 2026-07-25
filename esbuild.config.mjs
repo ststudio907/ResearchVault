@@ -41,28 +41,9 @@ const context = await esbuild.context({
 	minify: prod,
 });
 
-// Copy the pdfjs-dist worker file to the output directory so it can be loaded at runtime.
-import fs from 'node:fs';
-import path from 'node:path';
-
-const workerSrc = path.resolve(process.cwd(), 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs');
-const workerDest = path.resolve(process.cwd(), 'pdf.worker.min.mjs');
-
 if (prod) {
 	await context.rebuild();
-	fs.copyFileSync(workerSrc, workerDest);
 	process.exit(0);
 } else {
 	await context.watch();
-	// Watch the worker file and copy on change.
-	let lastCopy = 0;
-	setInterval(() => {
-		try {
-			const stat = fs.statSync(workerSrc);
-			if (stat.mtimeMs > lastCopy) {
-				fs.copyFileSync(workerSrc, workerDest);
-				lastCopy = Date.now();
-			}
-		} catch { /* ignore */ }
-	}, 2000);
 }
