@@ -20,3 +20,9 @@ data.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
+
+# --- Recovery artefacts from 2026-07-25 plan.md wipe (added by /tmp/A-restore.py) ---
+RECOVERED-plan.md
+RECOVERED-plan-diff-vs-current.patch
+plans/*.bak-pre-restore-*
+wip/
