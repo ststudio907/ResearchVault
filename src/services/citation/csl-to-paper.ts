@@ -37,6 +37,10 @@ export function cslToManualInput(
     const rs = r?.trim();
     return rs || undefined;
   };
+  // Normalizer for CSL text fields, which are `string | string[]` per the
+  // CSL-JSON spec (CrossRef's plain /works/{doi} endpoint returns arrays).
+  const text = (v: string | string[] | undefined): string | undefined =>
+    asText(v);
 
   const familyNames = authorNamesFromCsl(record.author) ?? [];
   const givenNamesRaw = authorGivenNamesFromCsl(record.author);
@@ -56,7 +60,7 @@ export function cslToManualInput(
     : (yearFromCsl(record.issued) ?? new Date().getFullYear());
 
   const out: PaperManualInput = {
-    title: pick(existing?.title, record.title) ?? 'Untitled',
+    title: pick(existing?.title, text(record.title)) ?? 'Untitled',
     authors: existingAuthors,
     year,
   };
@@ -81,27 +85,28 @@ export function cslToManualInput(
     out.authorFirstNames = existingFirsts;
   }
 
-  const venueFromTitle = pick(existing?.venue, record['container-title']);
-  const venueFromShort = pick(undefined, record.shortTitle);
+  const venueFromTitle = pick(existing?.venue, text(record['container-title']));
+  const venueFromShort = pick(undefined, text(record.shortTitle));
   const venue = venueFromTitle ?? venueFromShort;
   if (venue) out.venue = venue;
 
-  const doi = pick(existing?.doi, record.DOI);
+  const doi = pick(existing?.doi, text(record.DOI));
   if (doi) out.doi = doi;
 
-  const url = pick(existing?.url, record.URL);
+  const url = pick(existing?.url, text(record.URL));
   if (url) out.url = url;
 
   // 3a (2026-07-22 user-flagged): abstract auto-fill is in the spec; both
   // providers return it for ~80–85% of journal-article DOIs. We just surface
   // what we got; the modal can preview it without forcing a manual entry.
-  const abstract = pick(existing?.abstract, record.abstract);
+  const abstract = pick(existing?.abstract, stripJats(text(record.abstract)));
   if (abstract) out.abstract = abstract;
 
   const existingKws = existing?.keywords ?? [];
   const cslKws = keywordsFromCsl(record);
   if (existingKws.length > 0) out.keywords = existingKws;
   else if (cslKws.length > 0) out.keywords = cslKws;
+  // (see keywordsFromCsl below — it also normalizes array-typed fields)
 
   return out;
 }
@@ -150,15 +155,55 @@ function yearFromCsl(date: CslDate | undefined): number | undefined {
   return undefined;
 }
 
-/** Merge CSL `keyword` (string) and OpenAlex `subject` (string) into a deduped array. */
+/** Merge CSL `keyword` and OpenAlex `subject` (string or string[]) into a deduped array. */
 function keywordsFromCsl(record: CslJsonRecord): string[] {
   const out: string[] = [];
   for (const raw of [record.keyword, record.subject]) {
-    if (typeof raw !== 'string') continue;
-    for (const piece of raw.split(/[,;]+/g)) {
+    const s = asText(raw);
+    if (!s) continue;
+    for (const piece of s.split(/[,;]+/g)) {
       const t = piece.trim();
       if (t) out.push(t);
     }
   }
   return Array.from(new Set(out));
+}
+
+/**
+ * Normalize a CSL text field to a single string. The CSL-JSON spec types
+ * these as `string | string[]`; CrossRef's plain `/works/{doi}` endpoint
+ * (the `?transform=` param was removed from their API) returns arrays.
+ * Joins multi-part arrays with "; " — rare in practice (title is almost
+ * always a single-element array).
+ */
+export function asText(value: string | string[] | undefined): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (Array.isArray(value)) {
+    const joined = value
+      .filter((s): s is string => typeof s === 'string')
+      .join('; ')
+      .trim();
+    return joined.length > 0 ? joined : undefined;
+  }
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim();
+  return t.length > 0 ? t : undefined;
+}
+
+/**
+ * CrossRef returns abstracts wrapped in JATS XML tags
+ * (`<jats:p>…</jats:p>`, `<jats:title>Abstract</jats:title>`, …). Strip
+ * the tags and unescape the handful of entities CrossRef actually emits
+ * so the abstract lands in the form as plain text.
+ */
+function stripJats(value: string | undefined): string | undefined {
+  if (!value) return value;
+  const stripped = value
+    .replace(/<\/?jats:[^>]*>/g, ' ')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/&/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length > 0 ? stripped : undefined;
 }

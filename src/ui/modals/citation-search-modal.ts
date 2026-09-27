@@ -8,6 +8,7 @@
 // no pagination, no filters, just a search box + result list.
 
 import { App, Modal } from 'obsidian';
+import { asText } from '../../services/citation/csl-to-paper';
 import type { CitationService } from '../../services/citation/citation-service';
 import type { CslJsonRecord } from '../../services/citation/types';
 
@@ -112,7 +113,8 @@ export class CitationSearchModal extends Modal {
       // Render results as clickable rows
       for (const record of results) {
         const row = this.resultsEl.createDiv({ cls: 'researchvault-citation-search-result-row' });
-        row.createEl('div', { text: record.title || '(Untitled)', cls: 'researchvault-citation-search-title' });
+        const titleText = asText(record.title) ?? '(Untitled)';
+        row.createEl('div', { text: titleText, cls: 'researchvault-citation-search-title' });
         
         // Show authors if available
         if (record.author && record.author.length > 0) {

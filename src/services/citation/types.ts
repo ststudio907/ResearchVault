@@ -62,11 +62,17 @@ export interface CslJsonRecord {
   type?: string;
   /** DOI, ISBN, or other provider-native id. */
   id?: string;
-  title?: string;
+  /**
+   * NOTE (2026-09-27): the CSL-JSON spec types these text fields as
+   * `string | string[]`, and CrossRef's plain `/works/{doi}` endpoint
+   * returns arrays (the removed `?transform=` param used to coerce them).
+   * `cslToManualInput` normalizes both shapes via `asText()`.
+   */
+  title?: string | string[];
   abstract?: string;
   /** Journal or book title. */
-  'container-title'?: string;
-  shortTitle?: string;
+  'container-title'?: string | string[];
+  shortTitle?: string | string[];
   volume?: string | number;
   issue?: string | number;
   /** Page range like "123-145". */
@@ -78,9 +84,9 @@ export interface CslJsonRecord {
   ISBN?: string;
   ISSN?: string;
   /** CSL "keyword" property — usually a comma-joined string. */
-  keyword?: string;
+  keyword?: string | string[];
   /** OpenAlex sometimes uses "subject" / "keywords" instead of CSL's "keyword". */
-  subject?: string;
+  subject?: string | string[];
   author?: CslAuthor[];
   editor?: CslAuthor[];
   issued?: CslDate;
