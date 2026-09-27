@@ -89,6 +89,13 @@ export class CitationSearchModal extends Modal {
 
     // Focus the input on open
     window.setTimeout(() => input.focus(), 0);
+
+    // Pre-filled query (opened from the modal's Search-by-title button):
+    // run the search immediately instead of making the user press Search
+    // a second time.
+    if (this.initialQuery?.trim()) {
+      void this.performSearch(this.initialQuery.trim());
+    }
   }
 
   private async performSearch(query: string): Promise<void> {
