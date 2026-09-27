@@ -1162,6 +1162,33 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 
 **Cosmetic note.** The §14→§15 heading order in the recovered rTGX.md source has §15 appearing (a few lines) *before* §14. Pre-wipe worktree state, preserved through the restore. Purely cosmetic; does not affect §13 history, §14 row content, or §15 prose draft. 5.x polish can swap the order if it ever matters.
 
+### Sprint 4 — Sub-pass 4.1.F (bundle-cost gate measurement + 4.1.F.1 trim pass — measured, trimmed, landed 2026-09-27)
+
+**Goal.** 4.1.F is the design-doc §1.3 gate: measure the citation feature's real bundle cost against the **7 KB budget** and decide accept / trim / defer. Measurement was done first; the user then chose **option (b) — trim code in a 4.1.F.1 pass** over accepting the overshoot or deferring.
+
+**Measurement (4.1.F proper).** First attempt at a historical baseline — building the pre-citation commit `68ee65d` in a detached worktree — produced **444,433 B**, an apples-to-oranges number: the old `esbuild.config.mjs` still bundled `pdfjs-dist` (removed in the D27 link-only re-scope), so the delta is meaningless. Pivoted to the definitive method: `--metafile` per-module `bytesInOutput` analysis of the current bundle. Result: citation modules **19,736 B minified of 114,552 B total (17.2%)** vs the 7 KB budget = **2.8× overshoot**. Largest single dependency in the whole bundle is `fuse.js` at 26,371 B (pre-existing, not citation).
+
+**Usage scan before trimming.** Two search passes established the live/dead map: `openalex-to-csl.ts`'s **only** consumer was `providers/openalex.ts` (not `citation-service.ts` as originally assumed — folding into the sole consumer is the cleaner cut); `clearCaches()` had **zero callers** anywhere in `src/`; `importCslJson` had no external callers but `cslToManualInput` is live in two places.
+
+**Key insight.** esbuild inlines everything into one IIFE, so *moving* code between files saves ~0 minified bytes — **deleting dead code is what saves bytes**. This reshaped the trim plan from "reorganize" to "delete + simplify".
+
+**Trims executed (4.1.F.1).**
+
+1. **Folded `openalex-to-csl.ts` into `providers/openalex.ts`** and deleted the standalone file. During the fold: `reconstructAbstract` rewritten from the slot-array approach to a stable sort of `(position, word)` pairs (ES2019+ sort is stable, so tie order is preserved); `mapOpenAlexTypeToCsl` rewritten from a 12-case `switch` to a lookup table; `doiFromOpenAlexDoi` collapsed to a prefix loop; `OpenAlexWork`, `openAlexWorkToCsl`, and `buildOpenAlexUrl` un-exported (no external consumers).
+2. **Deleted `clearCaches()`** from `CitationService` (dead since 4.1.B — no caller ever wired up; 4.1.D did not ship a Clear-cache button). If a Clear-cache button ever ships, the method is a 3-line re-add.
+3. **Kept `importCslJson()`** despite having no callers today — it is the exact entry point 4.1.1 (generic CSL-JSON paste) and 5.1 (Zotero web API read-in) will call, and it is part of the 4.1.A public-API contract. Deleting it to re-add next sub-pass is churn for ~200 B. Documented here as a deliberate keep.
+4. **Modal wiring squeeze: no safe cuts found.** Every block examined in `applyAutofill` / `performDoiLookup` / `setStatus` / `updateLookupButton` is wired to a live UI path (track-on-edit semantics, inline status, button state). The ~15 KB the modal contributes is feature surface, not scaffolding.
+
+**Result.** Apples-to-apples CLI build of HEAD vs post-trim (same flags, same metafile method, citation subtotal including `citation-search-modal`): **20,893 → 20,400 B minified = −493 B**; wire size 114,685 → 114,192 B (main.js SHA-256 `d1134729…`). Citation feature now **20,400 B ≈ 2.9× the 7 KB budget** — the trim was honest but modest, because esbuild was already deduplicating across the module boundary and the remaining bytes are almost all live feature code. Closing the overshoot further means cutting *features* (e.g. the CrossRef↔OpenAlex B11 fallback, or provider choice), which is a user decision, not a refactor.
+
+**Files touched.** `src/services/citation/providers/openalex.ts` (fold + simplifications); `src/services/citation/citation-service.ts` (`clearCaches()` deleted); `src/services/citation/openalex-to-csl.ts` (**deleted**).
+
+**Files NOT touched.** `crossref.ts`, `csl-to-paper.ts`, `token-bucket.ts`, `lru-cache.ts`, `types.ts`, `_fetch-helper.ts`, `citation-search-modal.ts`, `paper-import-modal.ts`, `settings-tab.ts`, `src/types/*`, `esbuild.config.mjs`, `manifest.json`.
+
+**Verification gates.** `npx tsc --noEmit --skipLibCheck` exit 0; `npm run lint` exit 0; production build exit 0.
+
+**Honest caveats.** (a) The two metafiles came from different build invocations of the same source — the apples-to-apples −493 B figure supersedes the earlier 19,736 B subtotal, which under-counted by excluding `citation-search-modal.ts`. (b) The 2.8× → 2.9× shift in the ratio is arithmetic (recomputed denominator), not new cost. (c) `importCslJson` (~230 B minified) is dead weight carried deliberately; it becomes live the moment 4.1.1 ships. (d) Baseline worktrees (`/tmp/rv-pre-4p1`, `/tmp/rv-4p1f-base`) were created for measurement and removed after; stale `main.js` backups remain in `wip/`.
+
 ---
 
 ## 15. README Source — GitHub README Prose Draft
@@ -1349,7 +1376,7 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 - **Goal.** End-to-end click-through against a fresh test vault. Paste DOI `10.1109/CVPR.2016.90` → confirm `title` / `author[]` / `year` / `venue` fill. Edit `year` → re-click Lookup → `year` stays, `title` re-fills. Toggle `enableCitationLookup` off → Lookup button hides. Free-text *“attention is all you need”* → pick candidate → form fills. Submit → `Notice: Imported [citekey]` and note file lands with correct frontmatter.
 - **Why deferred from 4.1.C.** Modal code compiles + types pass + lint clean, but a click-through needs a real Obsidian instance wired to the plugin’s test-vault path. Best done once the next round of bundle-cost gates + settings-tab polish is quiet enough that the 7-step scorecard won’t be drowned out.
 
-### 4.1.F Bundle-cost gate — final `npx esbuild ... --metafile` measurement  `[ ]` (planned; not yet started)
+### 4.1.F Bundle-cost gate — final `npx esbuild ... --metafile` measurement  `[x]` (measured 2026-09-27: citation feature 20,893 B minified incl. search modal ≈ 2.9× the 7 KB budget; user chose trim → 4.1.F.1 shipped same day: folded `openalex-to-csl.ts` into `providers/openalex.ts`, deleted dead `clearCaches()`, kept `importCslJson` for 4.1.1/5.1; net **−493 B**, main.js 114,685 → 114,192 B; full dated entry in §13)
 - **Goal.** Produce the final 4.1 A+B+C+D byte delta. Honest-caveat reminder per design-doc §8.3: 4.1.A came in **3x** the design-doc estimate; 4.1.B likewise. Cumulative budget for §14 row 4.1 is 7 KB total; current measurement is **~+14,200 B which means the row overshoots**. Decision at 4.1.F time: (a) accept the overshoot and document it, (b) trim code (likely candidates: absorb `openalex-to-csl` mapper into a single helper file; drop `clearCaches()` from public API until 4.1.D wires the settings-tab *Clear cache* button), or (c) defer 4.1.G README prose until 5.x.
 - **No new code in 4.1.F.** Just measurement + a sub-pass row entry recording the actual main.js delta + a decision (a/b/c).
 

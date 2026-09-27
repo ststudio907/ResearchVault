@@ -185,13 +185,6 @@ export class CitationService {
 		return this.settings.citation.enableCitationLookup;
 	}
 
-	/** Drop all three caches. 4.1.C may expose this behind a button. */
-	clearCaches(): void {
-		this.lookupCache.clear();
-		this.titleSearchCache.clear();
-		this.querySearchCache.clear();
-	}
-
 	/**
 	 * Returns the user-configured preferred provider name. Pure read of
 	 * settings — does not check the enabled flag, buckets, caches, etc.
