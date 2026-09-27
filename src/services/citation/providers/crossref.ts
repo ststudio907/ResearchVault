@@ -44,7 +44,12 @@ export class CrossrefClient implements CitationProviderClient {
 	async lookupByDoi(doi: string, opts: ProviderFetchOpts): Promise<CslJsonRecord | null> {
 		const trimmed = doi.trim();
 		if (!trimmed) return null;
-		const url = `https://api.crossref.org/works/${encodeURIComponent(trimmed)}?transform=application/vnd.citationstyles.csl+json`;
+		// NOTE (2026-09-27): CrossRef removed the `transform` query parameter
+		// from their API (it now returns HTTP 400 "unknown-parameter"). CSL
+		// output is negotiated via the `Accept` header instead, which
+		// `getResponse` already sends. Verbatim DOI verified working via
+		// OpenAlex when CrossRef is unavailable.
+		const url = `https://api.crossref.org/works/${encodeURIComponent(trimmed)}`;
 		const body = await performLookupFetch(url, opts);
 		return body;
 	}
@@ -52,14 +57,14 @@ export class CrossrefClient implements CitationProviderClient {
 	async searchByTitle(title: string, limit: number, opts: ProviderFetchOpts): Promise<CslJsonRecord[]> {
 		const trimmed = title.trim();
 		if (!trimmed) return [];
-		const url = `https://api.crossref.org/works?query.title=${encodeURIComponent(trimmed)}&rows=${encodeLimit(limit)}&transform=application/vnd.citationstyles.csl+json`;
+		const url = `https://api.crossref.org/works?query.title=${encodeURIComponent(trimmed)}&rows=${encodeLimit(limit)}`;
 		return performSearchFetch(url, opts);
 	}
 
 	async searchByQuery(query: string, limit: number, opts: ProviderFetchOpts): Promise<CslJsonRecord[]> {
 		const trimmed = query.trim();
 		if (!trimmed) return [];
-		const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(trimmed)}&rows=${encodeLimit(limit)}&transform=application/vnd.citationstyles.csl+json`;
+		const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(trimmed)}&rows=${encodeLimit(limit)}`;
 		return performSearchFetch(url, opts);
 	}
 }
