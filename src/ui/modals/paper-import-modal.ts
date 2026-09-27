@@ -21,7 +21,7 @@
 //   • "Add paper" CTA disabled while required fields are blank or invalid.
 //
 
-import { App, Modal, Notice, Setting, TFile } from 'obsidian';
+import { App, Modal, Notice, Setting, TFile, TextComponent, TextAreaComponent } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
 import { READING_STATUSES } from '../../types';
@@ -85,6 +85,15 @@ export class PaperImportModal extends Modal {
   private doiLookupBtn: HTMLButtonElement | null = null;
   /** Inline status line for citation-lookup results; contextual alongside the form. */
   private statusEl: HTMLElement | null = null;
+  // ----- 4.1.3 — live input-component refs so applyAutofill can sync the DOM -----
+  /**
+   * Autofill writes into `this.form` state, but the visible inputs are
+   * Obsidian `TextComponent`s that keep their own DOM value — without a
+   * `setValue()` round-trip the fields LOOK empty after a lookup even
+   * though the data is applied (user-reported in the 4.1.E smoke,
+   * 2026-09-27). We keep the component refs keyed by form field.
+   */
+  private readonly inputRefs: Partial<Record<keyof PaperImportForm, TextComponent | TextAreaComponent>> = {};
 
   constructor(app: App, plugin: ResearchVaultPlugin, options: PaperImportOptions = {}) {
     super(app);
@@ -204,6 +213,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('Attention is all you need');
         text.setValue(this.form.title);
+        this.inputRefs['title'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('title');
           this.form.title = v;
@@ -224,6 +234,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('Vaswani');
         text.setValue(this.form.primaryAuthorLast);
+        this.inputRefs['primaryAuthorLast'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('primaryAuthorLast');
           this.form.primaryAuthorLast = v;
@@ -237,6 +248,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('E.g. Smith, jones');
         text.setValue(this.form.additionalAuthors);
+        this.inputRefs['additionalAuthors'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('additionalAuthors');
           this.form.additionalAuthors = v;
@@ -248,6 +260,7 @@ export class PaperImportModal extends Modal {
       .setDesc('4-digit year. Defaults to the current year.')
       .addText((text) => {
         text.setValue(this.form.year);
+        this.inputRefs['year'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('year');
           this.form.year = v;
@@ -260,6 +273,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('Neurips');
         text.setValue(this.form.venue);
+        this.inputRefs['venue'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('venue');
           this.form.venue = v;
@@ -271,6 +285,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('10.5555/123456');
         text.setValue(this.form.doi);
+        this.inputRefs['doi'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('doi');
           this.form.doi = v;
@@ -291,6 +306,7 @@ export class PaperImportModal extends Modal {
       .addTextArea((text) => {
         text.setPlaceholder('One paragraph summary.');
         text.setValue(this.form.abstract);
+        this.inputRefs['abstract'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('abstract');
           this.form.abstract = v;
@@ -303,6 +319,7 @@ export class PaperImportModal extends Modal {
       .addText((text) => {
         text.setPlaceholder('E.g. Transformer, attention');
         text.setValue(this.form.keywords);
+        this.inputRefs['keywords'] = text;
         text.onChange((v) => {
           this.autofilledFields.add('keywords');
           this.form.keywords = v;
@@ -691,6 +708,20 @@ export class PaperImportModal extends Modal {
     const keywords = input.keywords ?? [];
     if (keywords.length > 0 && !this.autofilledFields.has('keywords')) {
       this.form.keywords = keywords.join(', ');
+    }
+
+    // 4.1.3 — sync the visible inputs. applyAutofill only mutates `this.form`
+    // state; without this round-trip the fields LOOK empty after a lookup
+    // even though the data is applied (4.1.E smoke finding, 2026-09-27).
+    // setValue() does not fire onChange, so autofilledFields tracking and
+    // the form state are not disturbed.
+    this.syncInputs();
+  }
+
+  /** Push current form values into the cached input components. */
+  private syncInputs(): void {
+    for (const [key, component] of Object.entries(this.inputRefs)) {
+      component.setValue(this.form[key as keyof PaperImportForm]);
     }
   }
 
