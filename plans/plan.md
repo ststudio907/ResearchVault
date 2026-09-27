@@ -1191,6 +1191,16 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 
 ---
 
+### Sprint 4 — Sub-pass 4.1.G (README privacy disclosure for `D29` — shipped 2026-09-27)
+
+**Goal.** `D29` citation lookup is the first network feature outside `AIClient`, so the plugin-guideline rule applies: every external endpoint must be disclosed in the README. This was also drift #4 deferred from the 4.1.C+D audit.
+
+**Change.** Endpoint-level disclosure paragraph added to **both** the shipped `README.md` "Privacy & external services" section and the §15 canonical draft (lift-and-paste rule: §15 is the prose source of record). The paragraph names the two endpoints (`api.crossref.org`, `api.openalex.org`), states what leaves the device (only the DOI or search string typed by the user — never vault content), discloses the 30-day local response cache, and documents the polite-pool `mailto:` contact as opt-in and scoped to the chosen provider. Wording mirrors the settings-tab disclosure repainted in the 4.1.C+D drift audit.
+
+**No code changes.** Docs-only sub-pass; no build, no bundle delta.
+
+**Verification.** Text-only review — both locations carry the same contract: opt-in, endpoint-named, no vault content, cache disclosed, mailto scoped.
+
 ## 15. README Source — GitHub README Prose Draft
 
 ## 14. Upcoming Implementation Passes — Detailed Phase Plans
@@ -1314,7 +1324,7 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
   8. Audit: count of console warnings during the entire flow; log of network calls (`expected: none` outside an AI session).
 - **Output.** PR with screenshots and a copy of the checklist scored; closes both the §12 box and this row.
 
-### 4.1 `CitationService` + `D29` DOI lookup MVP  `[ ]` (sub-passes 4.1.A ship 2026-07-22 (+4,157 B); 4.1.B ship 2026-07-22 (+13,493 B); 4.1.C+D ship 2026-07-25 (+715 B) - drift audit caught 3 spec drifts and shipped corrections; 4.1.E manual smoke + 4.1.F bundle-cost gate + 4.1.G README privacy disclosure + 4.1.1 CSL-JSON paste still pending)
+### 4.1 `CitationService` + `D29` DOI lookup MVP  `[ ]` (sub-passes 4.1.A ship 2026-07-22 (+4,157 B); 4.1.B ship 2026-07-22 (+13,493 B); 4.1.C+D ship 2026-07-25 (+715 B) - drift audit caught 3 spec drifts and shipped corrections; 4.1.F gate passed (2.9x budget, trimmed -493 B) + 4.1.G README disclosure shipped 2026-09-27; 4.1.E manual smoke + 4.1.1 CSL-JSON paste still pending)
 - **Goal.** Turn the import modal into a "paste a DOI, the form fills itself" experience. Pure read; no auth; no Zotero; works on every platform. This is the highest-value follow-up to 2.7.1 per the user's bug-report follow-up message ("the most helpful if we can…" → DOI-driven metadata).
 - **Architecture (per `D29`).** A new pure service in [`src/services/citation/`](../../src/services/citation/) — `CitationService` with two providers (CrossRef primary, OpenAlex fallback for free-text) — behind a single `lookupByDoi(doi)` / `searchByTitle(query)` API. Lookup is a *modal affordance* that fills form fields; submit still goes through `PaperService.createManual` so `D28`'s "manual always wins" contract holds.
 - **Settings (opt-in, off by default).** New `citation: { enableCitationLookup, preferredProvider, politeContact? }` block on [`ResearchVaultSettings`](../../src/settings.ts); follows the `D12`/`D13` opt-in + disclosure pattern. New "Citations" section in [`src/ui/settings/settings-tab.ts`](../../src/ui/settings/settings-tab.ts) with toggle, provider dropdown, polite-pool `mailto:` field, and a disclosure paragraph that names the third-party endpoints and the payload.
@@ -1380,7 +1390,7 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 - **Goal.** Produce the final 4.1 A+B+C+D byte delta. Honest-caveat reminder per design-doc §8.3: 4.1.A came in **3x** the design-doc estimate; 4.1.B likewise. Cumulative budget for §14 row 4.1 is 7 KB total; current measurement is **~+14,200 B which means the row overshoots**. Decision at 4.1.F time: (a) accept the overshoot and document it, (b) trim code (likely candidates: absorb `openalex-to-csl` mapper into a single helper file; drop `clearCaches()` from public API until 4.1.D wires the settings-tab *Clear cache* button), or (c) defer 4.1.G README prose until 5.x.
 - **No new code in 4.1.F.** Just measurement + a sub-pass row entry recording the actual main.js delta + a decision (a/b/c).
 
-### 4.1.G README privacy disclosure for `D29` (the first network feature outside `AIClient`)  `[ ]` (planned; not yet started)
+### 4.1.G README privacy disclosure for `D29` (the first network feature outside `AIClient`)  `[x]` (shipped 2026-09-27: endpoint-level disclosure added to both `README.md` "Privacy & external services" and the §15 canonical draft — CrossRef/OpenAlex endpoints named, what's sent (DOI/search string only), 30-day local cache, opt-in `mailto:`; full dated entry in §13)
 - **Goal.** Lift the privacy-disclosure paragraph from `renderCitations` (4.1.D) verbatim into the `## 15. README Source → ## Privacy` block, and write it to `README.md` after the prose draft is signed off.
 - **Why deferred from 4.1.D.** The disclosure text exists; the README section does not yet. Splitting the two means 4.1.G is a 1-hour pass once the user signs off on the prose.
 
@@ -1492,6 +1502,7 @@ Your papers are plain markdown files. Your notes are plain markdown files. The m
 
 - **Default-off network.** ResearchVault does not send your vault anywhere unless the AI features are explicitly on. Citation lookup (`D29`) and Zotero sync (`D30`) follow the same opt-in pattern: off by default, no vault content ever sent, every external endpoint disclosed in the settings tab and above.
 - **No telemetry.** No analytics. No fingerprinting.
+- **Citation lookup** (`D29`) sends only the DOI or search string you typed to `api.crossref.org` and/or `api.openalex.org`. No vault content is sent. Responses are cached locally for 30 days; the polite-pool `mailto:` contact is opt-in and sent only to your chosen provider.
 - **You own the files.** Every paper is a normal markdown file in your vault folder.
 
 ## Install

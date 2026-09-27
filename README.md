@@ -68,6 +68,8 @@ plans/plan.md                   # master plan; source of truth for architecture
 
 ResearchVault's AI features send only user-selected text (papers, notes, chat input) to the provider configured in **Settings → AI features**. No telemetry, no auto-update, no external code execution. API keys are stored locally in plaintext — protected by your Obsidian settings file.
 
+**Citation lookup** (opt-in, off by default under **Settings → Citations**) sends only the DOI or search string you typed to `api.crossref.org` and/or `api.openalex.org`. No vault content is sent. Responses are cached locally for 30 days so repeat lookups don't re-hit the network. The optional polite-pool `mailto:` contact is off by default and, when enabled, is sent only to your chosen provider.
+
 See the [Obsidian plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines) and [developer policies](https://docs.obsidian.md/Developer+policies) for the constraints that shaped these choices.
 
 ## License
