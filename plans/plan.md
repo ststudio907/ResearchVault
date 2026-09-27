@@ -380,7 +380,7 @@ Ready to start Sprint 2 on user approval.
 | 2.8.1 | Attached-PDF row squish fix — detach long help text + drop zone + path-info from the Setting row's control column, mount them on **`root`** as full-width siblings below the row | 2 | **Source-complete 2026-07-21.** lint / tsc / build / deploy all green; `main.js` 88,190 B (+2.0 KB from 2.8; -38 B back off the first cut when the unused `pdfSetting` binding was dropped — lint caught it via `@typescript-eslint/no-unused-vars`). Manual click-through merged into 2.8.smoke (now a 7-step checklist). ⚠ Second-cut patch supersedes the first-cut `pdfSetting.settingEl.createDiv` attempt — root-mount on the modal content element was the load-bearing change. Iteration log + corrected surface in the dated entry in §13 below. |
 | 2.9 | Sidebar filter chip row (status / priority / year / hasPdf / hasNotes) + author autocomplete + saved filter state per project | 2 | **Planned, not started.** Detailed phase plan in §14 below. Pairs with the existing 2.8.Sidebar split-render refactor. |
 | 3.x | `CitationManager` (BibTeX emit, in-text cite insertion), `VaultIndexer` + `fuse.js`, literature-graph edges | 3 | Citeproc deferred until Sprint 3 follow-up. |
-| 4.1 | `CitationService` + `D29` (DOI lookup MVP: CrossRef primary, OpenAlex fallback, opt-in, LRU cache, rate limiter, modal Lookup + Search-by-title affordances) | 4 | **Sub-pass 4.1.A SHIPPED 2026-07-22** (lint 0, tsc 0, build +4,157 B over 2.8.1's 88,190 B baseline). Locked-preferences deliverable lives in [`plans/citation-lookup-research.md`](./citation-lookup-research.md) §7. Three blocking answers captured 2026-07-22 (Q1: CrossRef primary / OpenAlex free-text; Q2: polite-pool OFF by default; Q3: DOI + title + query in 4.1.A; arXiv / ISBN / PMID in 4.1.1). **Sub-pass 4.1.B SHIPPED 2026-07-22** (lint 0, tsc 0, build +13,493 B over 4.1.A's 92,347 B baseline → 105,840 B total). Real `fetch` calls + LRU + token-bucket + OpenAlex native→CSL mapper now live; 12 B-prefs enforced; rate-limit tuning still pending 4.1.E manual smoke. Full scope in the §13 dated entry below + design doc §8. **Next:** 4.1.C (modal Lookup / Search-by-title / Query-journals buttons + abstract autofill). Pairs with `D30` for the larger citation story. **Note:** sub-pass 4.1.A re-surfaced two stale items in the §14 row: (a) `Paper.url?` already exists on [`src/types/literature.ts:21`](../src/types/literature.ts) — only `oaUrl?` is a new field; (b) the current `migrateSettings` ([`src/settings.ts:95`](../src/settings.ts)) is a spread-merge, so the `citation` block is a default-fill, not a versioned migration. Both corrections are recorded as L1 and L3 in the design doc §7.2. |
+| 4.1 | `CitationService` + `D29` (DOI lookup MVP: CrossRef primary, OpenAlex fallback, opt-in, LRU cache, rate limiter, modal Lookup + Search-by-title affordances) | 4 | **Sub-pass 4.1.A SHIPPED 2026-07-22** (lint 0, tsc 0, build +4,157 B over 2.8.1's 88,190 B baseline). Locked-preferences deliverable lives in [`plans/citation-lookup-research.md`](./citation-lookup-research.md) §7. Three blocking answers captured 2026-07-22 (Q1: CrossRef primary / OpenAlex free-text; Q2: polite-pool OFF by default; Q3: DOI + title + query in 4.1.A; arXiv / ISBN / PMID in 4.1.1). **Sub-pass 4.1.B SHIPPED 2026-07-22** (lint 0, tsc 0, build +13,493 B over 4.1.A's 92,347 B baseline → 105,840 B total). Real `fetch` calls + LRU + token-bucket + OpenAlex native→CSL mapper now live; 12 B-prefs enforced; rate-limit tuning still pending 4.1.E manual smoke. Full scope in the §13 dated entry below + design doc §8. **Sub-passes 4.1.C+D SHIPPED 2026-07-25** (drift audit caught 3 spec drifts, fixed). **Sub-passes 4.1.E+F+G SHIPPED 2026-09-27**: smoke PASSED (4 findings fixed, 2 UX polish passes), bundle gate measured at 2.9x the 7 KB budget and trimmed (-493 B), README endpoint disclosure landed. main.js 115,153 B. **Next:** 4.1.1 (generic CSL-JSON paste). Pairs with `D30` for the larger citation story. **Note:** sub-pass 4.1.A re-surfaced two stale items in the §14 row: (a) `Paper.url?` already exists on [`src/types/literature.ts:21`](../src/types/literature.ts) — only `oaUrl?` is a new field; (b) the current `migrateSettings` ([`src/settings.ts:95`](../src/settings.ts)) is a spread-merge, so the `citation` block is a default-fill, not a versioned migration. Both corrections are recorded as L1 and L3 in the design doc §7.2. |
 | 4.x | `AIClient` real provider wiring, `AIChatView`, budget enforcement | 4 | Currently still `notImplemented`. |
 | 5.1 | Zotero web API read-in (`ZoteroClient` + `D30` layer a) | 5 | **Planned, not started.** Sub-pass design covered in [`plans/citation-lookup-research.md`](./citation-lookup-research.md). Deprioritised below 4.1 because it's a bigger surface (auth + settings block + collection mapping) and depends on a stable `CitationService` to do the CSL→Paper conversion. |
 | 5.2 | Zotero local API push-back (`ZoteroLocalClient` + `D30` layer b, desktop only) | 5 | **Planned, not started.** `127.0.0.1:23119` probe; "Push to Zotero" sidebar action; "Zotero is offline" fallback. |
@@ -1191,6 +1191,32 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 
 ---
 
+### Sprint 4 — Sub-pass 4.1.E (manual smoke — 4 findings fixed, 2 UX polish passes shipped 2026-09-27)
+
+**Goal.** Click through Lookup DOI + Search by title in the real test vault, per the §14 4.1.E row. The smoke was run by the user in `ResearchVault-Test` against a freshly deployed build.
+
+**Findings fixed (4).**
+
+1. **CrossRef dropped the `transform` query param → all lookups got HTTP 400** (commit `1f00cc3`). CrossRef retired the `?transform=application/vnd.citationstyles.csl+json` flag; the provider now parses the native response's nested `message` object instead.
+2. **CSL text fields arrive as `string | string[]` → `.trim is not a function`** (commit `67e043e`). CrossRef wraps some fields in arrays post-transform-removal; `asText`-style normalization applied at the mapping boundary.
+3. **Autofill left the visible inputs empty** (commit `a4adc94`). `applyAutofill` mutated only `this.form` state while Obsidian's `TextComponent`s kept their own DOM value. Fix: the modal caches component refs (`inputRefs`) and ends autofill with a `syncInputs()` pass; `setValue()` does not fire `onChange`, so track-on-edit semantics are undisturbed. +607 B.
+4. **README privacy disclosure missing** (the drift #4 from 4.1.C+D, shipped separately as 4.1.G — see its dated entry).
+
+**UX polish (2, both user-requested during the smoke).**
+
+1. **Search-results column grid** (commit `1196072`): result rows restructured into a Title | Authors | Year grid with a muted column-header row; em-dash placeholders keep columns aligned; ellipsis truncation on title/authors; tabular-nums year. The search modal had *zero* CSS before this pass. +282 B.
+2. **Auto-run pre-filled search** (commit `3ee9a48`): opening the search modal from Search-by-title now executes the query immediately instead of requiring a second Search press; input keeps focus for editing. +72 B.
+
+**Smoke verdict.** User-confirmed: DOI lookup autofills the form visibly, search + selection work, auto-search on open confirmed "works perfect". **4.1.E PASSED 2026-09-27.**
+
+**Bundle cost.** main.js 114,192 → 115,153 B (+961 B across fixes #3 and both polish passes). Cumulative citation-feature cost: ~21,361 B minified.
+
+**Verification gates.** Every fix individually green: tsc 0 / lint 0 / build 0 / deployed.
+
+**Honest caveats.** (a) Fixes #1 and #2 landed in a parallel session — this entry consolidates them for §13 completeness. (b) The 429/rate-limit path was not deliberately exercised (no easy way to trigger CrossRef throttling by hand); it remains covered by the token-bucket unit contract only. (c) Rate-limit tuning (B4/B9 constants) was "deferred to 4.1.E" per §8.3 — the smoke found no need to retune, so the locked numbers stand.
+
+---
+
 ### Sprint 4 — Sub-pass 4.1.G (README privacy disclosure for `D29` — shipped 2026-09-27)
 
 **Goal.** `D29` citation lookup is the first network feature outside `AIClient`, so the plugin-guideline rule applies: every external endpoint must be disclosed in the README. This was also drift #4 deferred from the 4.1.C+D audit.
@@ -1382,7 +1408,7 @@ The `5 req/s, capacity 10, 30 d TTL, 500 cap` numbers remain the working hypothe
 - **Files NOT touched.** Providers/*, paper-import-modal.ts (4.1.C), citation-service.ts (4.1.C `preferredProvider()` is the only edit), src/settings.ts, src/types/*, manifest.json, package.json, esbuild.config.mjs.
 - **Verification gates.** tsc / lint / build all 0.
 
-### 4.1.E Manual smoke — verify Lookup + Search buttons in a real Obsidian test vault  `[ ]` (planned; not yet started)
+### 4.1.E Manual smoke — verify Lookup + Search buttons in a real Obsidian test vault  `[x]` (**PASSED 2026-09-27**; 4 findings fixed — CrossRef transform-param removal, CSL `string | string[]` fields, autofill DOM sync, README disclosure (→ 4.1.G) — plus 2 UX polishes: Title | Authors | Year column grid and auto-run of the pre-filled search query; main.js +961 B to 115,153 B; full dated entry in §13)
 - **Goal.** End-to-end click-through against a fresh test vault. Paste DOI `10.1109/CVPR.2016.90` → confirm `title` / `author[]` / `year` / `venue` fill. Edit `year` → re-click Lookup → `year` stays, `title` re-fills. Toggle `enableCitationLookup` off → Lookup button hides. Free-text *“attention is all you need”* → pick candidate → form fills. Submit → `Notice: Imported [citekey]` and note file lands with correct frontmatter.
 - **Why deferred from 4.1.C.** Modal code compiles + types pass + lint clean, but a click-through needs a real Obsidian instance wired to the plugin’s test-vault path. Best done once the next round of bundle-cost gates + settings-tab polish is quiet enough that the 7-step scorecard won’t be drowned out.
 
