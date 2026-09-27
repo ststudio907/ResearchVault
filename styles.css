@@ -395,3 +395,53 @@
   font-size: 0.85em;
   word-break: break-all;
 }
+
+/* ----- Citation search results — 3-column grid (Title | Authors | Year) ----- */
+
+.researchvault-citation-search-results {
+  margin-top: 8px;
+}
+
+.researchvault-citation-search-result-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 4.5em;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.researchvault-citation-search-result-row:not(.researchvault-citation-search-header):hover {
+  background: var(--background-modifier-hover);
+}
+
+.researchvault-citation-search-header {
+  cursor: default;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.researchvault-citation-search-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.researchvault-citation-search-authors {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.researchvault-citation-search-year {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}

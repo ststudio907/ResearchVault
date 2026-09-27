@@ -110,26 +110,33 @@ export class CitationSearchModal extends Modal {
         return;
       }
 
-      // Render results as clickable rows
+      // Column headers — Title | Authors | Year, matching the row grid below.
+      const header = this.resultsEl.createDiv({ cls: 'researchvault-citation-search-result-row researchvault-citation-search-header' });
+      header.createEl('div', { text: 'Title', cls: 'researchvault-citation-search-title' });
+      header.createEl('div', { text: 'Authors', cls: 'researchvault-citation-search-authors' });
+      header.createEl('div', { text: 'Year', cls: 'researchvault-citation-search-year' });
+
+      // Render results as clickable rows. Each row is a 3-column grid
+      // (CSS in styles.css); columns always render so rows line up even
+      // when a record is missing authors or a year.
       for (const record of results) {
         const row = this.resultsEl.createDiv({ cls: 'researchvault-citation-search-result-row' });
         const titleText = asText(record.title) ?? '(Untitled)';
         row.createEl('div', { text: titleText, cls: 'researchvault-citation-search-title' });
-        
-        // Show authors if available
-        if (record.author && record.author.length > 0) {
-          const authorText = record.author.map(a => a.family).join(', ');
-          row.createEl('div', { text: authorText, cls: 'researchvault-citation-search-authors' });
-        }
 
-        // Show year if available — CSL date uses `date-parts` as [[year, month?, day?]]
+        // Authors (family names), em-dash placeholder when absent so the
+        // column doesn't collapse.
+        const authorText = record.author && record.author.length > 0
+          ? record.author.map(a => a.family).join(', ')
+          : '—';
+        row.createEl('div', { text: authorText, cls: 'researchvault-citation-search-authors' });
+
+        // Year — CSL date uses `date-parts` as [[year, month?, day?]];
+        // em-dash placeholder when absent.
         const issued = record['issued'];
-        if (issued && Array.isArray(issued['date-parts']) && issued['date-parts'].length > 0) {
-          const parts = issued['date-parts'][0];
-          if (parts && parts.length > 0 && typeof parts[0] === 'number') {
-            row.createEl('div', { text: String(parts[0]), cls: 'researchvault-citation-search-year' });
-          }
-        }
+        const parts = issued?.['date-parts']?.[0];
+        const yearText = parts && typeof parts[0] === 'number' ? String(parts[0]) : '—';
+        row.createEl('div', { text: yearText, cls: 'researchvault-citation-search-year' });
 
         // Click to pick this result. The provider label is the configured
         // preferred provider that searchByTitle() just routed through, so
