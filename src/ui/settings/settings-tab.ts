@@ -251,9 +251,8 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
    * api.zotero.org until the toggle is on and a userID is set.
    */
   private renderZotero(root: HTMLElement): void {
-    root.createEl('h3', { text: 'Zotero sync' });
+    new Setting(root).setName('Zotero sync').setHeading();
     root.createEl('p', {
-      // eslint-disable-next-line obsidianmd/ui/sentence-case -- Zotero/API are proper nouns
       text: 'Read-only pull from the Zotero web API. Sends only library read requests to api.zotero.org — nothing from your vault is sent. Create a key at zotero.org/settings/keys (library read permission is enough).',
       cls: 'setting-item-description',
     });
@@ -271,7 +270,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     new Setting(root)
       .setName('User ID')
-      .setDesc('Shown as "Your userID for use in API calls" at zotero.org/settings/keys.')
+      .setDesc('Your Zotero account ID, shown at zotero.org under Settings → Keys.')
       .addText((text) => {
         text.setPlaceholder('12345678');
         text.setValue(this.rv.settings.zotero.userID);
@@ -296,7 +295,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     new Setting(root)
       .setName('Library type')
-      .setDesc('Personal library, or a group library by id.')
+      .setDesc('Personal library, or a group library by ID.')
       .addDropdown((dropdown) => {
         dropdown.addOption('user', 'Personal library');
         dropdown.addOption('group', 'Group library');
@@ -311,7 +310,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
       .setName('Tag filter (optional)')
       .setDesc('Only fetch items carrying this Zotero tag, e.g. "researchvault". Leave blank for all items.')
       .addText((text) => {
-        text.setPlaceholder('e.g. researchvault');
+        text.setPlaceholder('Example: researchvault');
         text.setValue(this.rv.settings.zotero.tagFilter);
         text.onChange(async (value) => {
           this.rv.settings.zotero.tagFilter = value.trim();
