@@ -98,12 +98,20 @@ export class ZoteroClient {
       throw new ZoteroApiError('network', `Zotero: fetch failed — ${(err as Error).message ?? 'unknown error'}`);
     }
 
+    // Read the body once up front — Zotero's error bodies are plain-text
+    // reasons ("Invalid user ID", "Invalid 'sort' value 'x'") that we want
+    // to surface verbatim.
+    const bodyText = await response.text();
     const status = response.status;
+
+    if (status === 400) {
+      throw new ZoteroApiError('network', `Zotero rejected the request: ${bodyText || 'bad request (400)'}. Check the account ID in settings — it is the numeric ID at zotero.org/settings/keys, not your username.`, status);
+    }
     if (status === 401 || status === 403) {
       throw new ZoteroApiError('auth', 'Zotero: API key missing, invalid, or lacks read permission', status);
     }
     if (status === 404) {
-      throw new ZoteroApiError('not-found', 'Zotero: library not found — check userID / library settings', status);
+      throw new ZoteroApiError('not-found', 'Zotero: library not found — check the account ID / library settings', status);
     }
     if (status === 429) {
       throw new ZoteroApiError('rate-limited', 'Zotero: rate-limited (429) — retry in a moment', status);
@@ -117,14 +125,20 @@ export class ZoteroClient {
 
     let body: unknown;
     try {
-      body = await response.json();
+      body = JSON.parse(bodyText) as unknown;
     } catch (err) {
       throw new ZoteroApiError('network', `Zotero: invalid JSON — ${(err as Error).message ?? 'unknown error'}`);
     }
-    if (!Array.isArray(body)) {
-      throw new ZoteroApiError('network', 'Zotero: expected a CSL-JSON array response');
+    // `format=csljson` wraps the array in {"items": [...]}.
+    const records = Array.isArray(body)
+      ? body
+      : Array.isArray((body as { items?: unknown })?.items)
+        ? (body as { items: unknown[] }).items
+        : null;
+    if (records === null) {
+      throw new ZoteroApiError('network', 'Zotero: expected a CSL-JSON array (or {"items": [...]}) response');
     }
-    return body.filter(
+    return records.filter(
       (r): r is CslJsonRecord => !!r && typeof r === 'object' && !Array.isArray(r),
     );
   }

@@ -269,8 +269,8 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
       });
 
     new Setting(root)
-      .setName('User ID')
-      .setDesc('Your Zotero account ID, shown at zotero.org under Settings → Keys.')
+      .setName('Account ID')
+      .setDesc('Numeric ID from your Zotero account settings, not your username.')
       .addText((text) => {
         text.setPlaceholder('12345678');
         text.setValue(this.rv.settings.zotero.userID);
