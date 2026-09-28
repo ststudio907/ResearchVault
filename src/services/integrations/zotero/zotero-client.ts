@@ -73,10 +73,13 @@ export class ZoteroClient {
   }
 
   /**
-   * Fetch the most-recently-modified items as CSL-JSON. Returns `[]` for
-   * an empty library / filter — throws `ZoteroApiError` for mapped errors.
+   * Fetch items as CSL-JSON. With a `query`, Zotero runs a server-side
+   * full-text search across titles/creators/year; without one, the
+   * most-recently-modified items come back (newest first). Returns `[]`
+   * for an empty library / no hits — throws `ZoteroApiError` for mapped
+   * errors.
    */
-  async fetchItems(limit = 50, opts: ZoteroFetchOpts = {}): Promise<CslJsonRecord[]> {
+  async fetchItems(limit = 50, opts: ZoteroFetchOpts = {}, query = ''): Promise<CslJsonRecord[]> {
     const s = this.getSettings();
     const params = new URLSearchParams({
       format: 'csljson',
@@ -85,6 +88,8 @@ export class ZoteroClient {
       direction: 'desc',
     });
     if (s.tagFilter.trim()) params.set('tag', s.tagFilter.trim());
+    const q = query.trim();
+    if (q) params.set('q', q);
     const url = `${this.libraryUrl(s)}/items?${params.toString()}`;
 
     const fetchImpl: FetchImpl = applyObsidianFetch(opts.fetchImpl);
@@ -136,7 +141,8 @@ export class ZoteroClient {
         ? (body as { items: unknown[] }).items
         : null;
     if (records === null) {
-      throw new ZoteroApiError('network', 'Zotero: expected a CSL-JSON array (or {"items": [...]}) response');
+      const snippet = bodyText.slice(0, 200).replace(/\s+/g, ' ');
+      throw new ZoteroApiError('network', `Zotero: expected a CSL-JSON array (or {"items": [...]}) response — got: ${snippet || '(empty body)'}`);
     }
     return records.filter(
       (r): r is CslJsonRecord => !!r && typeof r === 'object' && !Array.isArray(r),

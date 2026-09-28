@@ -34,20 +34,40 @@ export class ZoteroSyncModal extends Modal {
 
     contentEl.createEl('h2', { text: 'Sync from Zotero' });
 
+    // Search box — Zotero server-side full-text search (titles/creators/
+    // year). Empty = most-recently-modified items. Enter or the button
+    // re-runs the fetch.
+    const searchRow = contentEl.createDiv({ cls: 'researchvault-citation-search-row' });
+    const input = searchRow.createEl('input', {
+      type: 'text',
+      placeholder: 'Search your library (blank = recent items)…',
+      cls: 'researchvault-citation-search-input',
+    });
+    const searchBtn = searchRow.createEl('button', { text: 'Search' });
+    const runSearch = (): void => {
+      void this.refresh(input.value);
+    };
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') runSearch();
+    });
+    searchBtn.addEventListener('click', runSearch);
+
     this.statusEl = contentEl.createDiv({ cls: 'researchvault-citation-search-status' });
     this.resultsEl = contentEl.createDiv({ cls: 'researchvault-citation-search-results' });
 
-    void this.refresh();
+    // Load recent items immediately; focus the search box for quick filtering.
+    void this.refresh('');
+    window.setTimeout(() => input.focus(), 0);
   }
 
-  /** Fetch + render. Re-run by the Refresh button. */
-  private async refresh(): Promise<void> {
+  /** Fetch + render. Re-run by the search box / button. */
+  private async refresh(query: string): Promise<void> {
     if (!this.resultsEl || !this.statusEl) return;
     this.resultsEl.empty();
-    this.statusEl.setText('Fetching from Zotero…');
+    this.statusEl.setText(query ? `Searching Zotero for “${query}”…` : 'Fetching recent items from Zotero…');
 
     try {
-      const records = await this.zotero.fetchItems(25);
+      const records = await this.zotero.fetchItems(25, {}, query);
       if (records.length === 0) {
         this.statusEl.setText('No items found — the library (or tag filter) is empty.');
         return;
