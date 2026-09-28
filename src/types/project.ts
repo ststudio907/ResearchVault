@@ -11,6 +11,12 @@ export interface Project {
   updatedAt: number;
   settings: ProjectSettings;
   isActive: boolean;             // Only one active at a time
+  /**
+   * 2.9 — persisted sidebar chip-filter state (JSON string produced by
+   * `serializeFilter`). Absent = default (no filters). Lives on the
+   * project record so it survives reloads and switches per project.
+   */
+  sidebarFilter?: string;
 }
 
 export interface ProjectSettings {
