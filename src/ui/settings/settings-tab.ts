@@ -26,6 +26,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
     this.renderGeneral(containerEl);
     this.renderProjects(containerEl);
     this.renderCitations(containerEl);
+    this.renderZotero(containerEl);
     this.renderAI(containerEl);
     this.renderTemplates(containerEl);
   }
@@ -243,6 +244,81 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
   // -------------------------------------------------------------------------
   // AI
   // -------------------------------------------------------------------------
+
+  /**
+   * 5.1 — Zotero web API read-in (D30 layer a). Opt-in: master toggle +
+   * credentials + library targeting + tag filter. Nothing hits
+   * api.zotero.org until the toggle is on and a userID is set.
+   */
+  private renderZotero(root: HTMLElement): void {
+    root.createEl('h3', { text: 'Zotero sync' });
+    root.createEl('p', {
+      // eslint-disable-next-line obsidianmd/ui/sentence-case -- Zotero/API are proper nouns
+      text: 'Read-only pull from the Zotero web API. Sends only library read requests to api.zotero.org — nothing from your vault is sent. Create a key at zotero.org/settings/keys (library read permission is enough).',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(root)
+      .setName('Enable Zotero sync')
+      .setDesc('Off by default. When on, a "Zotero…" button appears in the add-paper modal.')
+      .addToggle((toggle) => {
+        toggle.setValue(this.rv.settings.zotero.enableZoteroSync);
+        toggle.onChange(async (value) => {
+          this.rv.settings.zotero.enableZoteroSync = value;
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('User ID')
+      .setDesc('Shown as "Your userID for use in API calls" at zotero.org/settings/keys.')
+      .addText((text) => {
+        text.setPlaceholder('12345678');
+        text.setValue(this.rv.settings.zotero.userID);
+        text.onChange(async (value) => {
+          this.rv.settings.zotero.userID = value.trim();
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('API key')
+      .setDesc('Stored locally in this vault\'s plugin settings. Read-only key is sufficient.')
+      .addText((text) => {
+        text.inputEl.type = 'password';
+        text.setPlaceholder('Paste your Zotero API key');
+        text.setValue(this.rv.settings.zotero.apiKey);
+        text.onChange(async (value) => {
+          this.rv.settings.zotero.apiKey = value.trim();
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('Library type')
+      .setDesc('Personal library, or a group library by id.')
+      .addDropdown((dropdown) => {
+        dropdown.addOption('user', 'Personal library');
+        dropdown.addOption('group', 'Group library');
+        dropdown.setValue(this.rv.settings.zotero.libraryType);
+        dropdown.onChange(async (value) => {
+          this.rv.settings.zotero.libraryType = value === 'group' ? 'group' : 'user';
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('Tag filter (optional)')
+      .setDesc('Only fetch items carrying this Zotero tag, e.g. "researchvault". Leave blank for all items.')
+      .addText((text) => {
+        text.setPlaceholder('e.g. researchvault');
+        text.setValue(this.rv.settings.zotero.tagFilter);
+        text.onChange(async (value) => {
+          this.rv.settings.zotero.tagFilter = value.trim();
+          await this.rv.saveSettings();
+        });
+      });
+  }
 
   private renderAI(root: HTMLElement): void {
     new Setting(root).setName("AI features").setHeading();

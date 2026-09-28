@@ -26,6 +26,7 @@ import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
 import type { PaperManualInput } from '../../services/paper-service';
 import { CslJsonImportModal } from './csl-json-import-modal';
+import { ZoteroSyncModal } from './zotero-sync-modal';
 import { READING_STATUSES } from '../../types';
 import { generateUniqueCitekey, slugify } from '../../utils/citekey';
 import { applyStandardModalWidth } from './modal-width';
@@ -242,6 +243,28 @@ export class PaperImportModal extends Modal {
           }).open();
         });
       });
+
+    // 5.1 — "Zotero…" button, only when web-API sync is enabled and a
+    // userID is configured (D30 opt-in). Picked records go through the
+    // same applyManualInput path as everything else.
+    const zotero = this.rv.ensureZoteroClient();
+    if (zotero) {
+      new Setting(root)
+        .setName('Zotero')
+        .setDesc('Pick an item from your Zotero library to fill the empty fields.')
+        .addButton((btn) => {
+          btn.setButtonText('🔁 Zotero…');
+          btn.onClick(() => {
+            new ZoteroSyncModal(this.app, zotero, (record) => {
+              const service = this.rv.ensureCitationService();
+              if (service) {
+                this.applyManualInput(cslToManualInput(record, { source: 'doi' }));
+                this.setStatus('Filled from Zotero.', 'info');
+              }
+            }).open();
+          });
+        });
+    }
 
     new Setting(root)
       .setName('Primary author last name')

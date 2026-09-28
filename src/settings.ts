@@ -7,6 +7,10 @@
 
 import type { AIConfig, Project, CitationStyle, CitationSettings } from './types';
 import { DEFAULT_CITATION_STYLE, DEFAULT_CITATION_SETTINGS } from './types';
+import {
+  DEFAULT_ZOTERO_SETTINGS,
+  type ZoteroSettings,
+} from './services/integrations/zotero/zotero-client';
 
 /** Maximum value of `version` this build knows how to migrate from. Bump when shape changes. */
 export const CURRENT_SETTINGS_VERSION = '1' as const;
@@ -33,6 +37,13 @@ export interface ResearchVaultSettings {
    * the `types` barrel so consumers can `import { CitationSettings } from '../types'`.
    */
   citation: CitationSettings;
+  /**
+   * Zotero web API read-in (5.1, D30 layer a). OFF by default — nothing
+   * hits api.zotero.org until the user enables it and enters a userID +
+   * API key. Shape lives in `ZoteroSettings`
+   * (services/integrations/zotero/zotero-client.ts).
+   */
+  zotero: ZoteroSettings;
 }
 
 export const DEFAULT_TEMPLATES: TemplateConfig = {
@@ -97,6 +108,9 @@ export const DEFAULT_SETTINGS: ResearchVaultSettings = {
   // user explicitly opts in. `politeContact: ''` per Q2 — no identifier
   // leaves the device by default. The settings tab (4.1.D) flips both.
   citation: { ...DEFAULT_CITATION_SETTINGS },
+  // 5.1: Zotero sync off by default per D30 — no api.zotero.org traffic
+  // until the user opts in with a userID + API key (settings tab).
+  zotero: { ...DEFAULT_ZOTERO_SETTINGS },
 };
 
 /**

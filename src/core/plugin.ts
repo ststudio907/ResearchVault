@@ -15,6 +15,7 @@ import { ProjectManager } from '../services/project-manager';
 import { PaperService } from '../services/paper-service';
 import { VaultIndexer } from '../services/vault-indexer';
 import { CitationService } from '../services/citation/citation-service';
+import { ZoteroClient } from '../services/integrations/zotero/zotero-client';
 import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
@@ -50,6 +51,8 @@ export class ResearchVaultPlugin extends Plugin {
    * to the service lifetime rather than the plugin lifetime.
    */
   private citationService: CitationService | null = null;
+  /** 5.1 — lazily constructed by `ensureZoteroClient`. */
+  private zoteroClient: ZoteroClient | null = null;
 
   /** Pulled out so it can be invoked by `addCommand({ editorCallback })` and the settings tab alike. */
   openCreateProjectModal(): void {
@@ -282,5 +285,22 @@ export class ResearchVaultPlugin extends Plugin {
       });
     }
     return this.citationService;
+  }
+
+  /**
+   * 5.1 — lazy Zotero client accessor, same idempotent pattern as
+   * `ensureCitationService`. The client reads `settings.zotero` live via
+   * the getter, so settings-tab edits take effect without a reload.
+   * Returns `null` when sync is disabled or no userID is configured —
+   * callers treat that as "feature unavailable".
+   */
+  ensureZoteroClient(): ZoteroClient | null {
+    if (!this.settings.zotero.enableZoteroSync || !this.settings.zotero.userID.trim()) {
+      return null;
+    }
+    if (!this.zoteroClient) {
+      this.zoteroClient = new ZoteroClient(() => this.settings.zotero);
+    }
+    return this.zoteroClient;
   }
 }
