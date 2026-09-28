@@ -445,3 +445,20 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
+
+/* ----- 4.1.1 CSL-JSON paste modal ----- */
+
+.researchvault-csl-import-textarea {
+  width: 100%;
+  min-height: 12em;
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  resize: vertical;
+}
+
+.researchvault-csl-import-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

@@ -24,6 +24,8 @@
 import { App, Modal, Notice, Setting, TFile, TextComponent, TextAreaComponent } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
+import type { PaperManualInput } from '../../services/paper-service';
+import { CslJsonImportModal } from './csl-json-import-modal';
 import { READING_STATUSES } from '../../types';
 import { generateUniqueCitekey, slugify } from '../../utils/citekey';
 import { applyStandardModalWidth } from './modal-width';
@@ -225,6 +227,19 @@ export class PaperImportModal extends Modal {
         btn.buttonEl.addClass('researchvault-citation-search-btn');
         btn.onClick(() => {
           void this.openSearchByTitle();
+        });
+      })
+      .addButton((btn) => {
+        // 4.1.1 — generic CSL-JSON paste affordance. Local-only (no
+        // network, no settings gate): parses via importCslJson and fills
+        // the same empty-fields-only path as DOI lookup.
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- CSL is an acronym
+        btn.setButtonText('📋 Paste CSL…');
+        btn.buttonEl.addClass('researchvault-csl-import-btn');
+        btn.onClick(() => {
+          new CslJsonImportModal(this.app, (text) => {
+            this.handleCslJsonPaste(text);
+          }).open();
         });
       });
 
@@ -657,7 +672,45 @@ export class PaperImportModal extends Modal {
    */
   private applyAutofill(record: CslJsonRecord): void {
     const input = cslToManualInput(record, { source: 'doi' });
+    this.applyManualInput(input);
+  }
 
+  /**
+   * 4.1.1 — parse pasted CSL-JSON via `CitationService.importCslJson` and
+   * apply the first record. Extra records are reported but not applied —
+   * the import form is single-paper. Errors surface in the inline status
+   * line, not a global Notice.
+   */
+  private handleCslJsonPaste(text: string): void {
+    const service = this.rv.ensureCitationService();
+    if (!service) {
+      this.setStatus('Citation service unavailable.', 'error');
+      return;
+    }
+    try {
+      const inputs = service.importCslJson(text);
+      if (inputs.length === 0) {
+        this.setStatus('Nothing to import — the pasted text had no records.', 'error');
+        return;
+      }
+      this.applyManualInput(inputs[0]!);
+      const extra = inputs.length - 1;
+      this.setStatus(
+        `Filled from CSL-JSON${extra > 0 ? ` (first of ${inputs.length} records; ${extra} additional not applied — the form is single-paper).` : '.'}`,
+        'info',
+      );
+    } catch (err) {
+      this.setStatus(`CSL-JSON import failed — ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
+  }
+
+  /**
+   * 4.1.1 — apply an already-converted `PaperManualInput` (from DOI lookup,
+   * title search, or CSL-JSON paste) to the form, filling only fields the
+   * user has NOT manually edited. Shared by all fill paths so the
+   * track-on-edit semantics are identical everywhere.
+   */
+  private applyManualInput(input: PaperManualInput): void {
     // Title — only fill if the user hasn't typed anything yet.
     if (input.title && !this.autofilledFields.has('title')) {
       this.form.title = input.title;
