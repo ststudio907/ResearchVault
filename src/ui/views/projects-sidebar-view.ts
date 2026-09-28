@@ -17,17 +17,6 @@ import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
 import { PRIORITIES, READING_STATUSES } from '../../types';
 import { formatPaperDate } from '../../utils/format-date';
-import {
-  activeFilterCount,
-  applySidebarFilters,
-  defaultFilter,
-  deserializeFilter,
-  distinctAuthors,
-  isDefaultFilter,
-  serializeFilter,
-  type SidebarFilterState,
-} from './sidebar-filters';
-import { AuthorPickerModal } from '../modals/author-picker-modal';
 
 // `formatPaperDate` is the canonical "date" formatter for the sidebar (D24).
 // Status / priority editing in-row use the small inline `<select>` controls
@@ -95,8 +84,6 @@ export class ProjectsSidebarView extends ItemView {
   private currentQuery = '';
   /** Debounce handle for the search input. */
   private searchDebounce: number | null = null;
-  /** 2.9 — structured chip filter state (persisted per project). */
-  private filterState: SidebarFilterState = defaultFilter();
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchVaultPlugin) {
     super(leaf);
@@ -130,22 +117,12 @@ export class ProjectsSidebarView extends ItemView {
       this.rv.eventBus.on('paperStatusChanged', () => this.renderList()),
       this.rv.eventBus.on('projectChanged', () => {
         this.currentQuery = '';
-        // 2.9 — re-hydrate the persisted chip filters for the new project.
-        const active = this.rv.projectManager.getActiveProject();
-        this.filterState = active?.sidebarFilter
-          ? deserializeFilter(JSON.parse(active.sidebarFilter))
-          : defaultFilter();
         this.render();
       }),
       // Refresh results list when the indexer adds/removes/rebuilds records
       // (e.g. a quote was captured while the user is mid-typing a query).
       this.rv.eventBus.on('indexUpdated', () => this.renderList()),
     );
-    // 2.9 — hydrate the persisted chip filters for the active project on open.
-    const activeProject = this.rv.projectManager.getActiveProject();
-    this.filterState = activeProject?.sidebarFilter
-      ? deserializeFilter(JSON.parse(activeProject.sidebarFilter))
-      : defaultFilter();
     this.render();
     return Promise.resolve();
   }
@@ -221,21 +198,6 @@ export class ProjectsSidebarView extends ItemView {
       return;
     }
 
-    // 2.9 — chip row lives between the header and the list body; it
-    // re-renders with the list so chip toggles stay in sync.
-    this.renderChipRow(listEl, papers);
-
-    // Structured chip filters AND with the free-text search below.
-    const filtered = applySidebarFilters(papers, this.filterState);
-    if (filtered.length === 0 && !isDefaultFilter(this.filterState)) {
-      listEl.createEl('p', {
-        text: 'No papers match the active filters.',
-        cls: 'researchvault-sidebar-empty',
-      });
-      return;
-    }
-    const papersToRender = filtered;
-
     // When the user has typed a query, the indexer gives us a fuzzy-matched
     // subset across the whole vault. We still constrain by active project
     // membership at render time so the user never sees a paper from a
@@ -258,135 +220,16 @@ export class ProjectsSidebarView extends ItemView {
 
     // Derived "Needs action" group. Computed every render (cheap; it's just
     // a filter + sort over the in-memory list). Empty -> nothing rendered.
-    const needsAction = computeNeedsAction(papersToRender);
+    const needsAction = computeNeedsAction(papers);
     if (needsAction.length > 0) {
       this.renderGroup(listEl, 'needs-action', needsAction);
     }
 
-    const groups = groupByStatus(papersToRender);
+    const groups = groupByStatus(papers);
     for (const status of STATUS_ORDER) {
       const rows = groups.get(status);
       if (!rows || rows.length === 0) continue;
       this.renderGroup(listEl, status, rows);
-    }
-  }
-
-  /**
-   * 2.9 — render the filter chip row (status / priority / hasPdf /
-   * hasNotes / author pill + clear-all) and the active-filter count badge.
-   * Chips OR within a category and AND across categories (see
-   * `sidebar-filters.ts`). Toggling a chip persists the state to the
-   * active project record so it survives reloads.
-   */
-  private renderChipRow(listEl: HTMLElement, papers: Paper[]): void {
-    if (isDefaultFilter(this.filterState)) return;
-    const chipRow = listEl.createDiv({ cls: 'researchvault-sidebar-chip-row' });
-
-    const toggle = <T>(list: T[], value: T): T[] =>
-      list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-
-    const persist = (): void => {
-      const active = this.rv.projectManager.getActiveProject();
-      if (!active) return;
-      void this.rv.projectManager.updateProject(active.id, {
-        sidebarFilter: serializeFilter(this.filterState),
-      });
-    };
-
-    for (const status of STATUS_ORDER) {
-      if (!papers.some((p) => p.status === status)) continue;
-      const on = this.filterState.status.includes(status);
-      const chip = chipRow.createEl('button', {
-        text: titleCase(status),
-        cls: on
-          ? 'researchvault-sidebar-chip researchvault-sidebar-chip--on'
-          : 'researchvault-sidebar-chip',
-      });
-      chip.addEventListener('click', () => {
-        this.filterState.status = toggle(this.filterState.status, status);
-        persist();
-        this.renderList();
-      });
-    }
-
-    for (const priority of PRIORITIES) {
-      if (!papers.some((p) => p.priority === priority)) continue;
-      const on = this.filterState.priority.includes(priority);
-      const chip = chipRow.createEl('button', {
-        text: titleCase(priority),
-        cls: on
-          ? 'researchvault-sidebar-chip researchvault-sidebar-chip--on researchvault-sidebar-chip--priority'
-          : 'researchvault-sidebar-chip researchvault-sidebar-chip--priority',
-      });
-      chip.addEventListener('click', () => {
-        this.filterState.priority = toggle(this.filterState.priority, priority);
-        persist();
-        this.renderList();
-      });
-    }
-
-    if (papers.some((p) => !!p.pdfPath)) {
-      const on = this.filterState.hasPdf === true;
-      const chip = chipRow.createEl('button', {
-        text: 'Has PDF',
-        cls: on ? 'researchvault-sidebar-chip researchvault-sidebar-chip--on' : 'researchvault-sidebar-chip',
-      });
-      chip.addEventListener('click', () => {
-        this.filterState.hasPdf = on ? undefined : true;
-        persist();
-        this.renderList();
-      });
-    }
-
-    if (papers.some((p) => !!(p.myNotes && p.myNotes.trim()))) {
-      const on = this.filterState.hasNotes === true;
-      const chip = chipRow.createEl('button', {
-        text: 'Has notes',
-        cls: on ? 'researchvault-sidebar-chip researchvault-sidebar-chip--on' : 'researchvault-sidebar-chip',
-      });
-      chip.addEventListener('click', () => {
-        this.filterState.hasNotes = on ? undefined : true;
-        persist();
-        this.renderList();
-      });
-    }
-
-    // Author pill + picker button.
-    if (this.filterState.authorQuery?.trim()) {
-      const pill = chipRow.createEl('button', {
-        text: `Author: ${this.filterState.authorQuery} ✕`,
-        cls: 'researchvault-sidebar-chip researchvault-sidebar-chip--on researchvault-sidebar-chip--author',
-      });
-      pill.addEventListener('click', () => {
-        this.filterState.authorQuery = undefined;
-        persist();
-        this.renderList();
-      });
-    } else if (papers.length >= 3) {
-      const authorBtn = chipRow.createEl('button', {
-        text: 'Author…',
-        cls: 'researchvault-sidebar-chip researchvault-sidebar-chip--action',
-      });
-      authorBtn.addEventListener('click', () => {
-        new AuthorPickerModal(this.app, distinctAuthors(papers), (name) => {
-          this.filterState.authorQuery = name;
-          persist();
-          this.renderList();
-        }).open();
-      });
-    }
-
-    // Reset chip (only when filters are active).
-    if (!isDefaultFilter(this.filterState)) {
-      const reset = chipRow.createEl('button', {
-        text: 'Clear',
-        cls: 'researchvault-sidebar-chip researchvault-sidebar-chip--clear',
-      });
-      reset.addEventListener('click', () => {
-        this.filterState = defaultFilter();
-        persist();
-        this.renderList();
-      });
     }
   }
 
