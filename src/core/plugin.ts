@@ -238,11 +238,17 @@ export class ResearchVaultPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
         if (file instanceof TFile) {
+          // Sidebar-overhaul fix B (2026-09-28): if this event is the echo of
+          // a write we just performed ourselves (`selfAwareModify` armed the
+          // marker), skip external-edit handling entirely. Previously the
+          // echo ran `onPaperFileModified` against the still-stale in-memory
+          // snapshot, which re-stamped the OLD values back to disk and
+          // clobbered in-flight status/priority changes ("changes then
+          // reverts right away"). The 2.8.D 2-second guard stays as a
+          // second line of defense inside `onPaperFileModified`.
+          if (this.paperService.consumeSelfWrite(file.path)) return;
           // 2.8.D — re-stamp `dateModified` on every body-or-frontmatter
-          // edit. `syncFromFile` still owns frontmatter-only re-syncs; the
-          // 2-second loop guard inside `onPaperFileModified` keeps the
-          // re-entrant vault event from our own `persistPaper` write from
-          // re-stamping a second time.
+          // edit. `syncFromFile` still owns frontmatter-only re-syncs.
           void this.paperService.onPaperFileModified(file);
           void this.paperService.syncFromFile(file);
         }

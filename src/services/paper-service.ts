@@ -98,6 +98,16 @@ export class PaperService {
   /** Reverse index: citekey -> id, kept consistent with `byId` on every mutation. */
   private citekeyToId = new Map<string, string>();
   private initialized = false;
+  /**
+   * Sidebar-overhaul fix B (2026-09-28): paths we just wrote through
+   * `persistPaper` / `addQuote`. The vault `modify` handler in `plugin.ts`
+   * consumes a matching marker and skips the echo handling for that one
+   * event, so our own writes are never mistaken for external edits (which
+   * previously let `onPaperFileModified` re-stamp from a stale snapshot and
+   * clobber in-flight changes). Markers are consumed exactly once; a failed
+   * write removes its marker in the helper below.
+   */
+  private selfWritePaths = new Set<string>();
 
   constructor(
     private readonly plugin: ResearchVaultPlugin,
@@ -337,8 +347,22 @@ export class PaperService {
       ...updates,
       dateModified: Date.now(),
     };
-    await this.persistPaper(next, { refreshAttachedPdf: next.pdfPath !== current.pdfPath });
+    // Sidebar-overhaul fix A (2026-09-28): update the in-memory index BEFORE
+    // persisting. `persistPaper`'s disk write fires a vault `modify` event,
+    // and the handlers we registered for it (`onPaperFileModified`,
+    // `syncFromFile`) read this index. Updating it first means the
+    // re-stamp's 2-second guard sees the fresh `dateModified` and skips,
+    // and `syncFromFile`'s `papersEqual` short-circuits — the pre-fix order
+    // let the re-stamp resurrect the STALE pre-change paper and clobber the
+    // user's edit on disk (the "status changes then reverts right away" bug).
+    // If the write fails we roll the index back so memory never diverges.
     this.byId.set(next.id, next);
+    try {
+      await this.persistPaper(next, { refreshAttachedPdf: next.pdfPath !== current.pdfPath });
+    } catch (err) {
+      this.byId.set(current.id, current);
+      throw err;
+    }
     // `paperUpdated` is the canonical signal for `updatePaper` so subscribers (sidebar, indexer)
     // re-render without needing to know whether the change came from the modal or a vault sync.
     this.plugin.eventBus.emit('paperUpdated', next);
@@ -384,7 +408,7 @@ export class PaperService {
       const section = renderQuoteSection(storedQuote);
       const heading = body.includes('## Quotes') ? '' : '## Quotes\n\n';
       const nextBody = `${body.trimEnd()}\n\n${heading}${section}`;
-      await this.plugin.app.vault.modify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
+      await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
     }
 
     return storedQuote;
@@ -562,9 +586,11 @@ export class PaperService {
    * level changes; this fills the gap so body edits (footnote tweaks,
    * section rewrites, quote fixups) also surface a fresh `dateModified`.
    *
-   * The 2-second loop guard suppresses the re-entrant `modify` event that
-   * `persistPaper` itself triggers after we write the re-stamped value
-   * back to disk — we want exactly one re-stamp per user-visible edit.
+   * Echoes of our OWN writes are already filtered out upstream: the vault
+   * `modify` handler in `plugin.ts` consumes a `selfWritePaths` marker
+   * (armed by `writeTracked`) before calling this. The 2-second guard below
+   * remains as a second line of defense for any path that slipped through
+   * without a marker.
    */
   async onPaperFileModified(file: TFile): Promise<void> {
     const paper = this.findByPath(file.path);
@@ -575,6 +601,34 @@ export class PaperService {
     this.byId.set(updated.id, updated);
     await this.persistPaper(updated);
     this.plugin.eventBus.emit('paperUpdated', updated);
+  }
+
+  /**
+   * Sidebar-overhaul fix B (2026-09-28): single choke point for every write
+   * this service performs on an existing paper file. Arms the echo marker
+   * just before the write and disarms it on failure, so the vault `modify`
+   * event the write triggers is recognized as ours in `plugin.ts` exactly
+   * once — success or not.
+   */
+  private async selfAwareModify(file: TFile, data: string): Promise<void> {
+    this.selfWritePaths.add(file.path);
+    try {
+      await this.plugin.app.vault.modify(file, data);
+    } catch (err) {
+      this.selfWritePaths.delete(file.path);
+      throw err;
+    }
+  }
+
+  /**
+   * Consume-at-most-once check used by the vault `modify` handler in
+   * `plugin.ts`: returns true (and removes the marker) when the event is the
+   * echo of one of our own writes and must not be treated as an external
+   * edit.
+   */
+  consumeSelfWrite(path: string): boolean {
+    if (!this.selfWritePaths.delete(path)) return false;
+    return true;
   }
 
   /**
@@ -734,7 +788,7 @@ export class PaperService {
     }
     const existing = await this.plugin.app.vault.read(file);
     const { body } = splitFrontmatter(existing);
-    await this.plugin.app.vault.modify(file, joinFrontmatter(toFrontmatter(paper), body));
+    await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), body));
   }
 
   /**
@@ -749,7 +803,7 @@ export class PaperService {
     const existing = await this.plugin.app.vault.read(file);
     const { body } = splitFrontmatter(existing);
     const nextBody = upsertAttachedPdfSection(body, paper.pdfPath);
-    await this.plugin.app.vault.modify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
+    await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
   }
 
   private notImplemented(method: string): Error {
