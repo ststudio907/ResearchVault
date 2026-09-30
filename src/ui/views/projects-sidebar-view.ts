@@ -17,6 +17,15 @@ import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
 import { PRIORITIES, READING_STATUSES } from '../../types';
 import { formatPaperDate } from '../../utils/format-date';
+import {
+  applyFilters,
+  isFilterActive,
+  normalizeFilterPanel,
+  sortPapers,
+  type FilterPanelState,
+  type SortMode,
+} from './filter-panel';
+import { DEFAULT_FILTER_PANEL } from './filter-panel';
 
 // `formatPaperDate` is the canonical "date" formatter for the sidebar (D24).
 // Status / priority editing in-row use the small inline `<select>` controls
@@ -78,10 +87,21 @@ export class ProjectsSidebarView extends ItemView {
   private currentQuery = '';
   /** Debounce handle for the search input. */
   private searchDebounce: number | null = null;
+  /** Filter-panel state (2.9.C). Persisted globally in `settings.filterPanel`. */
+  private filterState: FilterPanelState;
+  /** Debounce handle for persisting filter tweaks (checkbox bursts). */
+  private filterSaveDebounce: number | null = null;
+  /** 50 ms coalescer for event-storm re-renders (see `scheduleRenderList`). */
+  private renderDebounce: number | null = null;
+  /** Panel element — re-created only when the view fully re-renders. */
+  private panelEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchVaultPlugin) {
     super(leaf);
     this.rv = plugin;
+    // 2.9.C: hydrate from persisted settings; unknown/legacy payloads fall
+    // back to defaults key-by-key in `normalizeFilterPanel`.
+    this.filterState = normalizeFilterPanel(plugin.settings.filterPanel);
   }
 
   getViewType(): string {
@@ -104,18 +124,22 @@ export class ProjectsSidebarView extends ItemView {
     // so its focus is never blown away by a re-render. `projectChanged`
     // does a full re-render because switching projects should also clear
     // any in-flight search query.
+    // 2.9.C section 3.4: a single status change can fire up to three events
+    // (paperUpdated + paperStatusChanged + vault-sync paperUpdated). Each
+    // subscriber coalesces through `scheduleRenderList` (50 ms trailing) so
+    // the list is rebuilt once, not three times.
     this.unsubscribers.push(
-      this.rv.eventBus.on('paperImported', () => this.renderList()),
-      this.rv.eventBus.on('paperUpdated', () => this.renderList()),
-      this.rv.eventBus.on('paperRemoved', () => this.renderList()),
-      this.rv.eventBus.on('paperStatusChanged', () => this.renderList()),
+      this.rv.eventBus.on('paperImported', () => this.scheduleRenderList()),
+      this.rv.eventBus.on('paperUpdated', () => this.scheduleRenderList()),
+      this.rv.eventBus.on('paperRemoved', () => this.scheduleRenderList()),
+      this.rv.eventBus.on('paperStatusChanged', () => this.scheduleRenderList()),
       this.rv.eventBus.on('projectChanged', () => {
         this.currentQuery = '';
         this.render();
       }),
       // Refresh results list when the indexer adds/removes/rebuilds records
       // (e.g. a quote was captured while the user is mid-typing a query).
-      this.rv.eventBus.on('indexUpdated', () => this.renderList()),
+      this.rv.eventBus.on('indexUpdated', () => this.scheduleRenderList()),
     );
     this.render();
     return Promise.resolve();
@@ -127,6 +151,11 @@ export class ProjectsSidebarView extends ItemView {
       window.clearTimeout(this.searchDebounce);
       this.searchDebounce = null;
     }
+    if (this.renderDebounce !== null) {
+      window.clearTimeout(this.renderDebounce);
+      this.renderDebounce = null;
+    }
+    this.flushFilterSave();
     this.contentEl.empty();
     return Promise.resolve();
   }
@@ -150,6 +179,12 @@ export class ProjectsSidebarView extends ItemView {
     // input; leaving it mounted across keystrokes is what keeps the input
     // focused.
     this.renderHeader(contentEl);
+
+    // 2.9.C: collapsible filter panel sits between header and list. The
+    // element is mounted once per full render; `renderPanel()` rebuilds
+    // its children in place on every state tweak.
+    this.panelEl = contentEl.createDiv({ cls: 'researchvault-sidebar-panel' });
+    this.renderPanel();
 
     // Persistent list container — only its children are cleared /
     // re-created in `renderList()`. The container itself is not replaced.
@@ -192,6 +227,11 @@ export class ProjectsSidebarView extends ItemView {
       return;
     }
 
+    // 2.9.C: the status/priority facets apply to EVERY bucket — status
+    // groups, Attention, and search results alike — so a hidden paper is
+    // hidden everywhere (§7.6 semantics).
+    const visible = applyFilters(papers, this.filterState);
+
     // When the user has typed a query, the indexer gives us a fuzzy-matched
     // subset across the whole vault. We still constrain by active project
     // membership at render time so the user never sees a paper from a
@@ -199,8 +239,11 @@ export class ProjectsSidebarView extends ItemView {
     const trimmed = this.currentQuery.trim();
     if (trimmed) {
       const hits = this.rv.vaultIndexer.searchPapers(trimmed);
-      const activePapers = new Set(papers.map((p) => p.id));
-      const scoped = hits.filter((p) => activePapers.has(p.id));
+      const activePapers = new Set(visible.map((p) => p.id));
+      const scoped = sortPapers(
+        hits.filter((p) => activePapers.has(p.id)),
+        this.filterState,
+      );
       if (scoped.length === 0) {
         listEl.createEl('p', {
           text: `No papers match "${trimmed}" in this project.`,
@@ -212,19 +255,217 @@ export class ProjectsSidebarView extends ItemView {
       return;
     }
 
-    // Derived "Attention" group (D31 rename of "Needs action"). Computed every
-    // render (cheap; it's just a filter + sort over the in-memory list).
-    // Empty -> nothing rendered.
-    const attention = computeAttention(papers);
-    if (attention.length > 0) {
-      this.renderGroup(listEl, 'attention', attention);
+    if (visible.length === 0) {
+      listEl.createEl('p', {
+        text: 'All papers hidden by the filter panel.',
+        cls: 'researchvault-sidebar-empty',
+      });
+      return;
     }
 
-    const groups = groupByStatus(papers);
+    // Derived "Attention" group (D31 rename of "Needs action"). Rendered
+    // only when the panel's Attention toggle is on; hidden by the facets
+    // like everything else. Empty -> nothing rendered.
+    if (this.filterState.attention) {
+      const attention = sortAttention(computeAttention(visible), Date.now());
+      if (attention.length > 0) {
+        this.renderGroup(listEl, 'attention', attention);
+      }
+    }
+
+    const groups = groupByStatus(visible);
     for (const status of STATUS_ORDER) {
       const rows = groups.get(status);
-      if (!rows || rows.length === 0) continue;
-      this.renderGroup(listEl, status, rows);
+      const count = rows?.length ?? 0;
+      if (count === 0) {
+        if (!this.filterState.hideEmpty) this.renderGroup(listEl, status, []);
+        continue;
+      }
+      this.renderGroup(listEl, status, sortPapers(rows ?? [], this.filterState));
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Filter panel (2.9.C)
+  // -------------------------------------------------------------------------
+
+  /** Coalesce bursty event re-renders into one trailing call (§3.4). */
+  private scheduleRenderList(): void {
+    if (this.renderDebounce !== null) window.clearTimeout(this.renderDebounce);
+    this.renderDebounce = window.setTimeout(() => {
+      this.renderDebounce = null;
+      this.renderList();
+    }, 50);
+  }
+
+  /** Persist the current filter state (debounced for checkbox bursts). */
+  private persistFilterState(): void {
+    this.rv.settings.filterPanel = this.filterState;
+    if (this.filterSaveDebounce !== null) {
+      window.clearTimeout(this.filterSaveDebounce);
+    }
+    this.filterSaveDebounce = window.setTimeout(() => {
+      this.filterSaveDebounce = null;
+      void this.rv.saveSettings();
+    }, 500);
+  }
+
+  /** Flush any pending filter save (called from `onClose`). */
+  private flushFilterSave(): void {
+    if (this.filterSaveDebounce !== null) {
+      window.clearTimeout(this.filterSaveDebounce);
+      this.filterSaveDebounce = null;
+      this.rv.settings.filterPanel = this.filterState;
+      void this.rv.saveSettings();
+    }
+  }
+
+  /** Mutate state, re-render the panel + list, schedule a debounced save. */
+  private updateFilterState(mutate: (s: FilterPanelState) => void): void {
+    mutate(this.filterState);
+    this.persistFilterState();
+    this.renderPanel();
+    this.renderList();
+  }
+
+  /**
+   * Render (or re-render) the collapsible filter panel below the header.
+   * The panel element is mounted once per full render; its contents are
+   * rebuilt in place on every state tweak so checkbox focus is stable.
+   */
+  private renderPanel(): void {
+    if (!this.panelEl) return;
+    const root = this.panelEl;
+    root.replaceChildren();
+
+    if (!this.filterState.open) {
+      root.addClass('is-closed');
+      return;
+    }
+    root.removeClass('is-closed');
+
+    const s = this.filterState;
+    const active = this.rv.projectManager.getActiveProject();
+    const papers = active ? this.rv.paperService.getInProject(active.id) : [];
+
+    // --- Attention toggle --------------------------------------------------
+    const attentionRow = root.createDiv({ cls: 'rv-filter-row' });
+    const attentionToggle = attentionRow.createEl('input', {
+      attr: { type: 'checkbox', id: 'rv-filter-attention' },
+    });
+    attentionToggle.checked = s.attention;
+    attentionToggle.addEventListener('change', () => {
+      this.updateFilterState((st) => { st.attention = attentionToggle.checked; });
+    });
+    attentionRow.createEl('label', {
+      text: 'Show attention list',
+      attr: { for: 'rv-filter-attention' },
+    });
+
+    // --- Status + priority checkboxes (shared facet renderer) ---------------
+    this.renderFacet(root, papers, 'Status', READING_STATUSES, s.status, (st, v) => { st.status = v; }, 'status', 'rv-fs');
+    this.renderFacet(root, papers, 'Priority', PRIORITIES, s.priority, (st, v) => { st.priority = v; }, 'priority', 'rv-fp');
+
+    // --- Sort dropdown + direction flip -------------------------------------
+    const sortRow = root.createDiv({ cls: 'rv-filter-row rv-filter-row--sort' });
+    sortRow.createEl('span', { text: 'Sort', cls: 'rv-filter-block-title' });
+    const sortSelect = sortRow.createEl('select', { cls: 'dropdown' });
+    const SORT_LABELS: Record<SortMode, string> = {
+      dateAdded: 'Recently added',
+      dateModified: 'Recently touched',
+      title: 'Title',
+      year: 'Year',
+      priority: 'Priority',
+    };
+    for (const mode of Object.keys(SORT_LABELS) as SortMode[]) {
+      sortSelect.createEl('option', { text: SORT_LABELS[mode], value: mode });
+    }
+    sortSelect.value = s.sort;
+    sortSelect.addEventListener('change', () => {
+      this.updateFilterState((st) => { st.sort = sortSelect.value as SortMode; });
+    });
+    sortSelect.addEventListener('click', (e) => e.stopPropagation());
+    const dirBtn = sortRow.createEl('button', {
+      cls: 'clickable-icon rv-filter-dir',
+      attr: {
+        'aria-label': s.sortAsc ? 'Ascending' : 'Descending',
+        title: s.sortAsc ? 'Ascending' : 'Descending',
+      },
+    });
+    setIcon(dirBtn, s.sortAsc ? 'arrow-up-narrow-wide' : 'arrow-down-wide-narrow');
+    dirBtn.addEventListener('click', () => {
+      this.updateFilterState((st) => { st.sortAsc = !st.sortAsc; });
+    });
+
+    // --- Hide empty toggle + reset link --------------------------------------
+    const emptyRow = root.createDiv({ cls: 'rv-filter-row' });
+    const emptyToggle = emptyRow.createEl('input', {
+      attr: { type: 'checkbox', id: 'rv-filter-empty' },
+    });
+    emptyToggle.checked = s.hideEmpty;
+    emptyToggle.addEventListener('change', () => {
+      this.updateFilterState((st) => { st.hideEmpty = emptyToggle.checked; });
+    });
+    emptyRow.createEl('label', {
+      text: 'Hide empty groups',
+      attr: { for: 'rv-filter-empty' },
+    });
+    const resetWrap = root.createDiv({ cls: 'rv-filter-links' });
+    const resetLink = resetWrap.createEl('a', { text: 'Reset' });
+    resetLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const open = this.filterState.open;
+      this.filterState = { ...DEFAULT_FILTER_PANEL, open };
+      this.persistFilterState();
+      this.renderPanel();
+      this.renderList();
+    });
+  }
+
+  /**
+   * Shared facet-block renderer (status / priority). `current === null`
+   * means "all selected"; selecting everything again snaps back to null so
+   * defaults stay canonical.
+   */
+  private renderFacet<T extends string>(
+    root: HTMLElement,
+    papers: Paper[],
+    title: string,
+    allValues: readonly T[],
+    current: T[] | null,
+    assign: (st: FilterPanelState, next: T[] | null) => void,
+    facet: 'status' | 'priority',
+    idPrefix: string,
+  ): void {
+    const block = root.createDiv({ cls: 'rv-filter-block' });
+    block.createEl('span', { text: title, cls: 'rv-filter-block-title' });
+    const links = block.createDiv({ cls: 'rv-filter-links' });
+    const allLink = links.createEl('a', { text: 'All' });
+    allLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.updateFilterState((st) => assign(st, null));
+    });
+    const noneLink = links.createEl('a', { text: 'None' });
+    noneLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.updateFilterState((st) => assign(st, []));
+    });
+    const grid = block.createDiv({ cls: 'rv-filter-grid' });
+    for (const value of allValues) {
+      const count = papers.filter((p) => p[facet] === value).length;
+      const row = grid.createDiv({ cls: 'rv-filter-check' });
+      const cb = row.createEl('input', { attr: { type: 'checkbox', id: `${idPrefix}-${value}` } });
+      cb.checked = current === null || current.includes(value);
+      cb.addEventListener('change', () => {
+        const base = current === null ? [...allValues] : [...current];
+        const next = cb.checked
+          ? (base.includes(value) ? base : [...base, value])
+          : base.filter((v) => v !== value);
+        // All selected == no filter; keeps defaults canonical.
+        this.updateFilterState((st) => assign(st, next.length === allValues.length ? null : next));
+      });
+      row.createEl('label', { text: titleCase(value), attr: { for: `${idPrefix}-${value}` } });
+      row.createEl('span', { text: String(count), cls: 'rv-filter-count' });
     }
   }
 
@@ -244,6 +485,21 @@ export class ProjectsSidebarView extends ItemView {
     });
     setIcon(switchBtn, 'folders');
     switchBtn.addEventListener('click', () => this.rv.openSwitchProjectModal());
+
+    // --- 2.9.C: filter-panel toggle (sliders icon) -------------------------
+    // Tinted whenever the filter state deviates from defaults so a
+    // forgotten filter is discoverable.
+    const filterBtn = titleRow.createEl('button', {
+      cls: 'clickable-icon researchvault-sidebar-filter-btn',
+      attr: { 'aria-label': 'Toggle filter panel', title: 'Toggle filter panel' },
+    });
+    setIcon(filterBtn, 'sliders-horizontal');
+    if (isFilterActive(this.filterState)) {
+      filterBtn.addClass('is-active');
+    }
+    filterBtn.addEventListener('click', () => {
+      this.updateFilterState((st) => { st.open = !st.open; });
+    });
 
     // --- Row 2: search input (sticky, full-width) -------------------------
     // 80ms debounce so quick typing doesn't trigger a render per keystroke.

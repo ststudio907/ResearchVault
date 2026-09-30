@@ -11,6 +11,10 @@ import {
   DEFAULT_ZOTERO_SETTINGS,
   type ZoteroSettings,
 } from './services/integrations/zotero/zotero-client';
+import {
+  DEFAULT_FILTER_PANEL,
+  type FilterPanelState,
+} from './ui/views/filter-panel';
 
 /** Maximum value of `version` this build knows how to migrate from. Bump when shape changes. */
 export const CURRENT_SETTINGS_VERSION = '1' as const;
@@ -44,6 +48,12 @@ export interface ResearchVaultSettings {
    * (services/integrations/zotero/zotero-client.ts).
    */
   zotero: ZoteroSettings;
+  /**
+   * Sidebar filter-panel state (2.9.C). Global across projects — the user's
+   * ask was about visual noise, which is a device-level preference. Shape
+   * lives in `FilterPanelState` (ui/views/filter-panel.ts).
+   */
+  filterPanel: FilterPanelState;
 }
 
 export const DEFAULT_TEMPLATES: TemplateConfig = {
@@ -111,6 +121,9 @@ export const DEFAULT_SETTINGS: ResearchVaultSettings = {
   // 5.1: Zotero sync off by default per D30 — no api.zotero.org traffic
   // until the user opts in with a userID + API key (settings tab).
   zotero: { ...DEFAULT_ZOTERO_SETTINGS },
+  // 2.9.C: filter panel defaults = show everything, Attention on, panel
+  // collapsed. `status`/`priority` null = all (no filter bytes by default).
+  filterPanel: { ...DEFAULT_FILTER_PANEL },
 };
 
 /**
@@ -133,6 +146,10 @@ export function migrateSettings(raw: unknown): ResearchVaultSettings {
     // is a spread-merge, not a versioned switch). Older payloads that pre-date
     // 4.1.A simply get a fresh `DEFAULT_CITATION_SETTINGS` block stamped in.
     citation: { ...DEFAULT_CITATION_SETTINGS, ...(candidate.citation ?? {}) },
+    filterPanel: {
+      ...DEFAULT_FILTER_PANEL,
+      ...((candidate.filterPanel ?? {}) as Partial<FilterPanelState>),
+    },
     projects: Array.isArray(candidate.projects) ? candidate.projects : [],
     version: CURRENT_SETTINGS_VERSION,
   };

@@ -153,22 +153,102 @@
   color: var(--text-faint);
 }
 
-/* --- Needs action \u2014 the derived top group (D20) ---------------------- */
+/* --- Attention — the derived top group (D20/D31, renamed from
+ *     "Needs action"; the needs-action class is kept so themes that target
+ *     it keep working) ----------------------------------------------- */
 
+.researchvault-sidebar-group--attention,
 .researchvault-sidebar-group--needs-action {
   --rv-group-accent: #d23f3f;
 }
 
-.researchvault-sidebar-group--needs-action
-  .researchvault-sidebar-group-heading {
+.researchvault-sidebar-group--attention .researchvault-sidebar-group-heading,
+.researchvault-sidebar-group--needs-action .researchvault-sidebar-group-heading {
   background: rgba(210, 63, 63, 0.1);
   color: #d23f3f;
 }
 
-.researchvault-sidebar-group--needs-action
-  .researchvault-sidebar-group-count {
+.researchvault-sidebar-group--attention .researchvault-sidebar-group-count,
+.researchvault-sidebar-group--needs-action .researchvault-sidebar-group-count {
   background: rgba(210, 63, 63, 0.15);
   color: #d23f3f;
+}
+
+/* --- Filter panel (2.9.C) -------------------------------------------- */
+
+.researchvault-sidebar-panel {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 0 8px;
+  font-size: 0.85em;
+}
+
+.researchvault-sidebar-panel.is-closed {
+  display: none;
+}
+
+.researchvault-sidebar-filter-btn.is-active {
+  color: var(--interactive-accent);
+}
+
+.rv-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.rv-filter-row--sort .rv-filter-block-title {
+  min-width: 42px;
+}
+
+.rv-filter-row--sort select {
+  flex: 1;
+}
+
+.rv-filter-block {
+  padding: 4px 0;
+}
+
+.rv-filter-block-title {
+  display: block;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rv-filter-links {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.rv-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 8px;
+}
+
+.rv-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rv-filter-check label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rv-filter-count {
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
+.rv-filter-dir {
+  flex-shrink: 0;
 }
 
 /* --- Paper rows (3.1b) -----------------------------------------------
