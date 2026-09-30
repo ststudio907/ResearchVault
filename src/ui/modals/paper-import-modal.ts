@@ -65,7 +65,7 @@ interface PaperImportForm {
   explicitCitekey: string;
 }
 
-const PRIORITIES: readonly Priority[] = ['low', 'medium', 'high', 'critical'];
+const PRIORITIES: readonly Priority[] = ['low', 'normal', 'high'];
 
 export class PaperImportModal extends Modal {
   private readonly rv: ResearchVaultPlugin;
@@ -141,10 +141,10 @@ export class PaperImportModal extends Modal {
         abstract: '',
         keywords: '',
         pdfPath: '',
-        // Prefer 'queued' over 'unread' so newly-added papers don't accidentally
-        // appear under the "active reading" group on first render.
-        status: 'queued',
-        priority: 'medium',
+        // 2026-09-30 label redesign: 'queued' was merged into 'unread', so
+        // new papers now start there directly (D31 migration map).
+        status: 'unread',
+        priority: 'normal',
         explicitCitekey: '',
       };
     }

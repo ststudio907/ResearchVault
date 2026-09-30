@@ -365,7 +365,7 @@ export class ProjectManager {
       year: new Date(file.stat.ctime).getFullYear(),
       keywords: [],
       status: 'unread',
-      priority: 'medium',
+      priority: 'normal',
       dateAdded: file.stat.ctime,
       dateModified: file.stat.mtime,
       quotes: [],

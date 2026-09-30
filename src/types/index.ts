@@ -36,14 +36,16 @@ export type {
   PaperSource,
 } from './literature';
 
-/** Tuples used by UI dropdowns and validation. Kept in sync with the unions in `literature.ts`. */
+/** Tuples used by UI dropdowns and validation. Kept in sync with the unions in `literature.ts`.
+ *  2026-09-30 label redesign: `queued` merged into `unread`, `summarized` merged into
+ *  `annotating`; priorities re-tiered to low/normal/high (`critical` → `high`). Legacy
+ *  frontmatter values are coerced on read in `paper-service.ts` (§7.5 of
+ *  plans/sidebar-overhaul-research.md). */
 export const READING_STATUSES: readonly ReadingStatus[] = [
   'unread',
-  'queued',
   'skimming',
   'reading',
   'annotating',
-  'summarized',
   'synthesized',
   'archived',
   'excluded',
@@ -51,9 +53,8 @@ export const READING_STATUSES: readonly ReadingStatus[] = [
 
 export const PRIORITIES: readonly Priority[] = [
   'low',
-  'medium',
+  'normal',
   'high',
-  'critical',
 ] as const;
 
 /** Provenance values a Quote may carry. Kept in sync with `QuoteSource` in `literature.ts`. */

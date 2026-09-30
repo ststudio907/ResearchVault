@@ -72,16 +72,14 @@ export interface Author {
 
 export type ReadingStatus =
   | 'unread'
-  | 'queued'
   | 'skimming'
   | 'reading'
   | 'annotating'
-  | 'summarized'
   | 'synthesized'
   | 'archived'
   | 'excluded';
 
-export type Priority = 'low' | 'medium' | 'high' | 'critical';
+export type Priority = 'low' | 'normal' | 'high';
 
 export interface Quote {
   id: string;

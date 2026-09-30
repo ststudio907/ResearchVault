@@ -262,8 +262,8 @@ export class PaperService {
       pdfPath: linkedPdfPath,
       abstract: trimOrUndefined(input.abstract),
       keywords: (input.keywords ?? []).map((k) => k.trim()).filter(Boolean),
-      status: input.status ?? 'queued',
-      priority: input.priority ?? 'medium',
+      status: input.status ?? 'unread',
+      priority: input.priority ?? 'normal',
       rating: input.rating,
       dateAdded: now,
       dateModified: now,
@@ -939,16 +939,28 @@ function frontmatterToPaper(
     abstract: fm.abstract,
     keywords: Array.isArray(fm.keywords) ? (fm.keywords) : [],
     status: ((): ReadingStatus => {
-      const candidate = fm.status;
-      if (candidate && READING_STATUSES.includes(candidate)) {
-        return candidate;
+      // Read the raw value unwidened: `fm.status` is typed as the NEW union,
+      // but files written before the 2026-09-30 label redesign may still
+      // carry legacy `queued` / `summarized` on disk.
+      const candidate = fm.status as unknown as string | undefined;
+      if (candidate && READING_STATUSES.includes(candidate as ReadingStatus)) {
+        return candidate as ReadingStatus;
       }
-      return 'queued';
+      // 2026-09-30 label redesign (§7.5 of plans/sidebar-overhaul-research.md):
+      // legacy values coerce at read time; the file rewrites itself with the
+      // new value on the next persist. `queued` → `unread` (same posture),
+      // `summarized` → `annotating` (synthesis still pending → stays
+      // in-flight so staleness behaves correctly).
+      if (candidate === 'queued') return 'unread';
+      if (candidate === 'summarized') return 'annotating';
+      return 'unread';
     })(),
     priority: ((): Paper['priority'] => {
-      const p = fm.priority;
-      if (p === 'low' || p === 'medium' || p === 'high' || p === 'critical') return p;
-      return 'medium';
+      const p = fm.priority as unknown as string | undefined;
+      if (p === 'low' || p === 'normal' || p === 'high') return p;
+      // Legacy `medium` maps to the new default tier; legacy `critical`
+      // collapses into `high` (urgency is now time-boxed by lifecycle).
+      return 'normal';
     })(),
     rating: typeof fm.rating === 'number' ? fm.rating : undefined,
     dateAdded: fromFrontmatterDate(fm.dateAdded, file.stat.ctime),

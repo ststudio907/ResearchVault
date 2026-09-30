@@ -26,50 +26,44 @@ import { formatPaperDate } from '../../utils/format-date';
 /** Stable view id so the same leaf is reused on every "open" call. */
 export const VIEW_TYPE_RESEARCHVAULT_SIDEBAR = 'researchvault-sidebar';
 
-/** Status display order in the sidebar (priority then lifecycle). */
+/** Status display order in the sidebar (priority then lifecycle). 2026-09-30
+ *  label redesign (D31): `queued` merged into `unread`, `summarized` into
+ *  `annotating`. */
 const STATUS_ORDER: readonly ReadingStatus[] = [
   'reading',
   'skimming',
   'annotating',
-  'queued',
   'unread',
-  'summarized',
   'synthesized',
   'archived',
   'excluded',
 ];
 
 /**
- * Staleness window for the "Needs action" group. A paper that has been in
- * `skimming` or `annotating` for longer than this is treated as stagnant.
- * D20 — derived only; not a stored field.
+ * Staleness window for the "Attention" group (D31 rename of "Needs action").
+ * A paper that has been in-flight for longer than this is treated as
+ * stagnant. D20 — derived only; not a stored field.
  */
 const STALE_AFTER_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** Statuses considered "actively being worked on" by default. */
+/**
+ * Statuses considered "in-flight" (Attention candidates). 2026-09-30 label
+ * redesign: this set is also the stale set — `reading` now goes stale too
+ * (previously only `skimming`/`annotating` did).
+ */
 const ACTIVE_STATUSES: ReadonlySet<ReadingStatus> = new Set<ReadingStatus>([
   'reading',
   'skimming',
   'annotating',
 ]);
 
-/** Statuses that can become stale (>14 days in the same state). */
-const STALEABLE_STATUSES: ReadonlySet<ReadingStatus> = new Set<ReadingStatus>([
-  'skimming',
-  'annotating',
-]);
-
-/** Priority weight for the Needs-action sort. Higher = earlier. */
+/** Priority weight for the Attention sort. Higher = earlier. */
 function priorityWeight(p: Paper['priority']): number {
   switch (p) {
-    case 'critical':
-      return 3;
     case 'high':
       return 2;
-    case 'medium':
+    case 'normal':
       return 1;
-    case 'low':
-      return 0;
     default:
       return 0;
   }
@@ -218,11 +212,12 @@ export class ProjectsSidebarView extends ItemView {
       return;
     }
 
-    // Derived "Needs action" group. Computed every render (cheap; it's just
-    // a filter + sort over the in-memory list). Empty -> nothing rendered.
-    const needsAction = computeNeedsAction(papers);
-    if (needsAction.length > 0) {
-      this.renderGroup(listEl, 'needs-action', needsAction);
+    // Derived "Attention" group (D31 rename of "Needs action"). Computed every
+    // render (cheap; it's just a filter + sort over the in-memory list).
+    // Empty -> nothing rendered.
+    const attention = computeAttention(papers);
+    if (attention.length > 0) {
+      this.renderGroup(listEl, 'attention', attention);
     }
 
     const groups = groupByStatus(papers);
@@ -293,10 +288,10 @@ export class ProjectsSidebarView extends ItemView {
    */
   private renderGroup(
     root: HTMLElement,
-    status: ReadingStatus | 'results' | 'needs-action',
+    status: ReadingStatus | 'results' | 'attention',
     papers: Paper[],
   ): void {
-    const isVirtual = status === 'results' || status === 'needs-action';
+    const isVirtual = status === 'results' || status === 'attention';
     const section = root.createDiv({
       cls: [
         'researchvault-sidebar-group',
@@ -307,8 +302,8 @@ export class ProjectsSidebarView extends ItemView {
     const headingText =
       status === 'results'
         ? 'Results'
-        : status === 'needs-action'
-          ? 'Needs action'
+        : status === 'attention'
+          ? 'Attention'
           : titleCase(status);
     heading.createEl('span', { text: headingText });
     heading.createEl('span', {
@@ -341,17 +336,17 @@ export class ProjectsSidebarView extends ItemView {
         this.rv.openEditPaperModal(paper);
       });
 
-      // ---- Line 2: citekey / year / (needs-action tag) --------------------
+      // ---- Line 2: citekey / year / (attention tag) ------------------------
       const line2 = content.createDiv({ cls: 'researchvault-sidebar-row-line researchvault-sidebar-row-line--meta' });
       line2.createEl('span', { text: paper.citekey, cls: 'researchvault-sidebar-row-citekey' });
       line2.createEl('span', { text: ' \u00b7 ', cls: 'researchvault-sidebar-row-meta-sep' });
       line2.createEl('span', { text: String(paper.year), cls: 'researchvault-sidebar-row-year' });
-      if (status === 'needs-action') {
-        const reason = needsActionReason(paper);
+      if (status === 'attention') {
+        const reason = attentionReason(paper);
         if (reason) {
           const tag = line2.createEl('span', { text: reason, cls: 'researchvault-sidebar-row-tag' });
-          tag.setAttribute('aria-label', `Needs action: ${reason}`);
-          tag.setAttribute('title', `Needs action: ${reason}`);
+          tag.setAttribute('aria-label', `Attention: ${reason}`);
+          tag.setAttribute('title', `Attention: ${reason}`);
         }
       }
 
@@ -458,43 +453,44 @@ function groupByStatus(papers: Paper[]): Map<ReadingStatus, Paper[]> {
 }
 
 /**
- * D20 \u2014 derived view. A paper lands in "Needs action" when:
- *   - `paper.priority === 'critical'`, OR
- *   - `paper.status in ACTIVE_STATUSES`, OR
- *   - (status in STALEABLE_STATUSES) AND `now - dateAdded > STALE_AFTER_MS`.
+ * D20/D31 — derived view. A paper lands in "Attention" when ALL of:
+ *   - status is in-flight (`status in ACTIVE_STATUSES`), AND
+ *   - `priority === 'high'` OR stale (`now - dateAdded > STALE_AFTER_MS`).
  *
- * 2.8.D: `dateModified` now re-stamps on every body edit, so the
- * staleness proxy moved off it. `dateAdded` (creation age) is the new
- * stable proxy: a paper added 14+ days ago that is still in 'skimming'
- * or 'annotating' is genuinely stagnant, regardless of how recently the
- * user typed in the note.
+ * 2026-09-30 label redesign (D31): the old OR-based "Needs action" rule
+ * surfaced critical-priority papers regardless of status (archived papers
+ * nagged forever) and never staleness-checked `reading`. The new rules are
+ * AND-ed, so urgency is time-boxed by lifecycle, and `reading` goes stale.
+ * Terminal statuses (`synthesized` / `archived` / `excluded`) are excluded
+ * by the ACTIVE_STATUSES gate alone — they are never in it.
+ *
+ * 2.8.D: `dateModified` re-stamps on every body edit, so the staleness
+ * proxy is `dateAdded` (creation age): a paper added 14+ days ago that is
+ * still in-flight is genuinely stagnant, regardless of recent edits.
  */
-function computeNeedsAction(papers: Paper[]): Paper[] {
+function computeAttention(papers: Paper[]): Paper[] {
   const now = Date.now();
   const matched = papers.filter((p) => {
-    if (p.priority === 'critical') return true;
-    if (ACTIVE_STATUSES.has(p.status)) return true;
-    if (STALEABLE_STATUSES.has(p.status) && now - p.dateAdded > STALE_AFTER_MS) {
-      return true;
-    }
-    return false;
+    if (!ACTIVE_STATUSES.has(p.status)) return false;
+    if (p.priority === 'high') return true;
+    return now - p.dateAdded > STALE_AFTER_MS;
   });
-  return sortNeedsAction(matched, now);
+  return sortAttention(matched, now);
 }
 
 /**
  * Sort: priority weight desc, then stale-first, then most-recently modified,
  * then title.
  */
-function sortNeedsAction(papers: Paper[], now: number): Paper[] {
+function sortAttention(papers: Paper[], now: number): Paper[] {
   return papers.slice().sort((a, b) => {
     const pa = priorityWeight(a.priority);
     const pb = priorityWeight(b.priority);
     if (pa !== pb) return pb - pa;
     const aStale =
-      STALEABLE_STATUSES.has(a.status) && now - a.dateAdded > STALE_AFTER_MS;
+      ACTIVE_STATUSES.has(a.status) && now - a.dateAdded > STALE_AFTER_MS;
     const bStale =
-      STALEABLE_STATUSES.has(b.status) && now - b.dateAdded > STALE_AFTER_MS;
+      ACTIVE_STATUSES.has(b.status) && now - b.dateAdded > STALE_AFTER_MS;
     if (aStale !== bStale) return aStale ? -1 : 1;
     if (a.dateModified !== b.dateModified) return b.dateModified - a.dateModified;
     return a.title.localeCompare(b.title);
@@ -502,18 +498,18 @@ function sortNeedsAction(papers: Paper[], now: number): Paper[] {
 }
 
 /**
- * Human-readable reason a paper surfaced in "Needs action". Used as the
+ * Human-readable reason a paper surfaced in "Attention". Used as the
  * small tag rendered next to the title. Falls back to the paper's priority
- * or active status.
+ * or in-flight status.
  */
-function needsActionReason(paper: Paper): string {
+function attentionReason(paper: Paper): string {
   const now = Date.now();
-  if (STALEABLE_STATUSES.has(paper.status) && now - paper.dateAdded > STALE_AFTER_MS) {
+  if (now - paper.dateAdded > STALE_AFTER_MS) {
     const days = Math.floor((now - paper.dateAdded) / (24 * 60 * 60 * 1000));
     return `Stale ${days}d \u00b7 ${titleCase(paper.status)}`;
   }
-  if (paper.priority === 'critical') {
-    return `Critical \u00b7 ${titleCase(paper.status)}`;
+  if (paper.priority === 'high') {
+    return `High priority \u00b7 ${titleCase(paper.status)}`;
   }
   return titleCase(paper.status);
 }
