@@ -101,7 +101,14 @@ export class ProjectManager {
       );
     }
 
-    await this.ensureFolder(folderPath);
+    // 2.9.UX: materialize the FULL project skeleton immediately — papers,
+    // notes, literature, pdfs — so the user sees a complete project home
+    // the moment creation succeeds, instead of the subfolders appearing
+    // lazily on the next reload or first paper import.
+    await this.ensureFolder(joinPath(folderPath, 'papers'));
+    await this.ensureFolder(joinPath(folderPath, 'notes'));
+    await this.ensureFolder(joinPath(folderPath, 'literature'));
+    await this.ensureFolder(joinPath(folderPath, 'pdfs'));
 
     const now = Date.now();
     const project: Project = {

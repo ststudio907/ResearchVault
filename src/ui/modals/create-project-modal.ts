@@ -12,6 +12,7 @@
 //
 
 import { App, Modal, Notice, Setting, TFolder, normalizePath } from 'obsidian';
+import type { TextComponent } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import { CITATION_STYLES } from '../../types';
 import { applyStandardModalWidth } from './modal-width';
@@ -28,6 +29,10 @@ export class CreateProjectModal extends BaseProjectModal {
   private folderPath = '';
   private description = '';
   private citationStyle = this.plugin.settings.globalCitationStyle;
+  /** Set once the user hand-edits the folder field; stops the name mirror. */
+  private folderTouched = false;
+  /** Ref to the folder input so the name mirror can update it silently. */
+  private folderInput: TextComponent | null = null;
 
   onOpen(): void {
     const { contentEl } = this;
@@ -42,16 +47,28 @@ export class CreateProjectModal extends BaseProjectModal {
         text.setValue(this.name);
         text.onChange((v) => {
           this.name = v;
+          if (!this.folderTouched) {
+            this.folderPath = v.trim();
+            this.folderInput?.setValue(this.folderPath);
+          }
         });
       });
 
     new Setting(contentEl)
       .setName('Folder path')
-      .setDesc('Where this project\'s files will live. Created if missing.')
+      .setDesc(
+        'Defaults to a vault folder named after the project. Created — with its ' +
+        'papers, notes, literature, and pdfs subfolders — if missing.',
+      )
       .addText((text) => {
-        text.setPlaceholder('Projects/ML research');
+        text.setPlaceholder('ML research');
         text.setValue(this.folderPath);
+        // 2.9.UX: mirror the project name into the folder path until the
+        // user hand-edits it, so "name the project" is the only required
+        // step (the folder materializes from the name automatically).
+        this.folderInput = text;
         text.onChange((v) => {
+          this.folderTouched = true;
           this.folderPath = v;
         });
       })
