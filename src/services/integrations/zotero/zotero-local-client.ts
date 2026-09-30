@@ -22,8 +22,7 @@
 // the collection currently selected in the Zotero window; single-paper
 // push only in v1).
 
-import { applyObsidianFetch } from '../../citation/providers/_fetch-helper';
-import type { FetchImpl } from '../../citation/types';
+import { requestUrl } from 'obsidian';
 
 /** Loopback base — constant per the Zotero 7 connector protocol. */
 const ZOTERO_CONNECTOR_BASE = 'http://127.0.0.1:23119';
@@ -57,16 +56,16 @@ export interface SelectedCollection {
   name: string;
 }
 
-export interface ZoteroLocalFetchOpts {
-  fetchImpl?: FetchImpl;
+/** Minimal response shape we consume — mirrors what the old fetch-based
+ *  transport returned so call sites stay unchanged. */
+interface LocalResponse {
+  status: number;
+  ok: boolean;
+  json: () => Promise<unknown>;
 }
 
 export class ZoteroLocalClient {
-  constructor(
-    private readonly getSettings: () => ZoteroLocalSettings,
-    /** Injectable clock/timeout seam for tests. */
-    private readonly timeoutMs = 1_500,
-  ) {}
+  constructor(private readonly getSettings: () => ZoteroLocalSettings) {}
 
   /** True when the feature is enabled in settings (desktop gating is done by callers). */
   isEnabled(): boolean {
@@ -78,9 +77,9 @@ export class ZoteroLocalClient {
    * `false` (never throws) when it is not reachable — offline is an expected
    * state, not an error.
    */
-  async ping(opts: ZoteroLocalFetchOpts = {}): Promise<boolean> {
+  async ping(): Promise<boolean> {
     try {
-      const res = await this.post('connector/ping', {}, opts);
+      const res = await this.post('connector/ping', {});
       // The connector responds 200 with a JSON version envelope.
       void res;
       return true;
@@ -94,12 +93,10 @@ export class ZoteroLocalClient {
    * Returns `null` when Zotero reports no usable selection (e.g. a saved-search
    * or a feed view); the caller then shows its fallback.
    */
-  async getSelectedCollection(
-    opts: ZoteroLocalFetchOpts = {},
-  ): Promise<SelectedCollection | null> {
-    const res = await this.post('connector/getSelectedCollection', {}, opts);
+  async getSelectedCollection(): Promise<SelectedCollection | null> {
+    const res = await this.post('connector/getSelectedCollection', {});
     const body = (await res.json()) as {
-      id?: string | number;
+      id?: string | number | null;
       name?: string;
       type?: string;
     };
@@ -121,15 +118,11 @@ export class ZoteroLocalClient {
    * Returns the number of items handed to Zotero. Throws `Error` with a
    * readable message on any non-OK response.
    */
-  async pushItems(
-    items: ConnectorItem[],
-    opts: ZoteroLocalFetchOpts = {},
-  ): Promise<{ saved: number }> {
+  async pushItems(items: ConnectorItem[]): Promise<{ saved: number }> {
     if (items.length === 0) return { saved: 0 };
     const res = await this.post(
       'connector/saveItems',
       { items, uri: 'urn:researchvault:push' },
-      opts,
     );
     if (!res.ok) {
       throw new Error(
@@ -140,24 +133,32 @@ export class ZoteroLocalClient {
     return { saved: items.length };
   }
 
-  /** Shared POST with a short timeout; loopback only; no credentials. */
-  private async post(
-    path: string,
-    body: unknown,
-    opts: ZoteroLocalFetchOpts = {},
-  ): Promise<Response> {
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const doFetch = applyObsidianFetch(opts.fetchImpl);
-      return await doFetch(`${ZOTERO_CONNECTOR_BASE}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } finally {
-      window.clearTimeout(timer);
-    }
+  /**
+   * Shared POST; loopback only; no credentials.
+   *
+   * Transport note (smoke fix 2026-09-30): we use Obsidian's `requestUrl`
+   * rather than `window.fetch` because Zotero's connector server drops the
+   * TCP connection outright for requests carrying a non-allowlisted
+   * `Origin` header — and the renderer always sends `Origin:
+   * app://obsidian.md` (verified via curl: the same POST returns 200
+   * without the header, connection-terminated with it). `requestUrl` runs
+   * in Electron's main process and sends no Origin header, so Zotero
+   * accepts it. `requestUrl` has no per-request timeout knob; a hung
+   * loopback connection surfaces as a rejected promise from the
+   * main-process layer, which `ping()` already maps to `false`.
+   */
+  private async post(path: string, body: unknown): Promise<LocalResponse> {
+    const res = await requestUrl({
+      url: `${ZOTERO_CONNECTOR_BASE}/${path}`,
+      method: 'POST',
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+      throw: false,
+    });
+    return {
+      status: res.status,
+      ok: res.status >= 200 && res.status < 300,
+      json: () => Promise.resolve(res.json as unknown),
+    };
   }
 }
