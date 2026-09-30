@@ -148,15 +148,21 @@ export class ProjectsSidebarView extends ItemView {
       this.rv.eventBus.on('indexUpdated', () => this.scheduleRenderList()),
     );
     // 5.2: probe Zotero desktop once per session so the push button knows
-    // whether to render. Silent on failure — offline is normal.
+    // whether to render. Silent on failure — offline is normal. Fire it
+    // AFTER the first render completes and re-render on success so a
+    // toggle enabled mid-session is picked up on next open.
+    this.render();
     const local = this.rv.ensureZoteroLocalClient();
     if (local && Platform.isDesktopApp) {
-      void local.ping().then((ok) => {
-        this.zoteroReachable = ok;
-        if (ok) this.renderList();
-      });
+      void local.ping()
+        .then((ok) => {
+          this.zoteroReachable = ok;
+          if (ok) this.scheduleRenderList();
+        })
+        .catch(() => {
+          this.zoteroReachable = false;
+        });
     }
-    this.render();
     return Promise.resolve();
   }
 
