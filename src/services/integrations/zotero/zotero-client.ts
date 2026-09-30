@@ -32,6 +32,12 @@ export interface ZoteroSettings {
   libraryID: string;
   /** Tag filter — when set, only items carrying this tag are fetched (e.g. 'researchvault'). */
   tagFilter: string;
+  /**
+   * 5.2 (D30 layer b): local push-back to the Zotero desktop app via its
+   * loopback connector server. OFF by default; desktop-only at runtime
+   * (the UI hides the push affordance on mobile regardless).
+   */
+  enableLocalPush: boolean;
 }
 
 export const DEFAULT_ZOTERO_SETTINGS: ZoteroSettings = {
@@ -41,6 +47,7 @@ export const DEFAULT_ZOTERO_SETTINGS: ZoteroSettings = {
   libraryType: 'user',
   libraryID: '',
   tagFilter: '',
+  enableLocalPush: false,
 };
 
 export class ZoteroApiError extends Error {

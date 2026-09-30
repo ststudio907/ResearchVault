@@ -16,6 +16,7 @@ import { PaperService } from '../services/paper-service';
 import { VaultIndexer } from '../services/vault-indexer';
 import { CitationService } from '../services/citation/citation-service';
 import { ZoteroClient } from '../services/integrations/zotero/zotero-client';
+import { ZoteroLocalClient } from '../services/integrations/zotero/zotero-local-client';
 import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
@@ -53,6 +54,8 @@ export class ResearchVaultPlugin extends Plugin {
   private citationService: CitationService | null = null;
   /** 5.1 — lazily constructed by `ensureZoteroClient`. */
   private zoteroClient: ZoteroClient | null = null;
+  /** 5.2 — lazily constructed by `ensureZoteroLocalClient`. */
+  private zoteroLocalClient: ZoteroLocalClient | null = null;
 
   /** Pulled out so it can be invoked by `addCommand({ editorCallback })` and the settings tab alike. */
   openCreateProjectModal(): void {
@@ -308,5 +311,14 @@ export class ResearchVaultPlugin extends Plugin {
       this.zoteroClient = new ZoteroClient(() => this.settings.zotero);
     }
     return this.zoteroClient;
+  }
+
+  /** 5.2 — lazy local push-back client (D30 layer b). Loopback-only. */
+  ensureZoteroLocalClient(): ZoteroLocalClient | null {
+    if (!this.settings.zotero.enableLocalPush) return null;
+    if (!this.zoteroLocalClient) {
+      this.zoteroLocalClient = new ZoteroLocalClient(() => this.settings.zotero);
+    }
+    return this.zoteroLocalClient;
   }
 }

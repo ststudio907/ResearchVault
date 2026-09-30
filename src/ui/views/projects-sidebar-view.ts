@@ -12,7 +12,8 @@
 // Reacts to the plugin's typed event bus so the view stays in sync with
 // `PaperService` without polling.
 
-import { ItemView, WorkspaceLeaf, Notice, setIcon } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Notice, Platform, setIcon } from 'obsidian';
+import type { ConnectorItem } from '../../services/integrations/zotero/zotero-local-client';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
 import { PRIORITIES, READING_STATUSES } from '../../types';
@@ -95,6 +96,11 @@ export class ProjectsSidebarView extends ItemView {
   private renderDebounce: number | null = null;
   /** Panel element — re-created only when the view fully re-renders. */
   private panelEl: HTMLElement | null = null;
+  /**
+   * 5.2: result of the once-per-session Zotero-desktop reachability probe.
+   * `null` = not probed yet; the push button renders only when `true`.
+   */
+  private zoteroReachable: boolean | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchVaultPlugin) {
     super(leaf);
@@ -141,6 +147,15 @@ export class ProjectsSidebarView extends ItemView {
       // (e.g. a quote was captured while the user is mid-typing a query).
       this.rv.eventBus.on('indexUpdated', () => this.scheduleRenderList()),
     );
+    // 5.2: probe Zotero desktop once per session so the push button knows
+    // whether to render. Silent on failure — offline is normal.
+    const local = this.rv.ensureZoteroLocalClient();
+    if (local && Platform.isDesktopApp) {
+      void local.ping().then((ok) => {
+        this.zoteroReachable = ok;
+        if (ok) this.renderList();
+      });
+    }
     this.render();
     return Promise.resolve();
   }
@@ -646,6 +661,19 @@ export class ProjectsSidebarView extends ItemView {
         this.rv.openQuoteCaptureModal({ defaultPaperId: paper.id });
       });
 
+      // ---- 5.2: Push to Zotero (desktop + enabled + reachable only) -------
+      if (this.zoteroReachable === true) {
+        const pushBtn = line3.createEl('button', {
+          cls: 'clickable-icon researchvault-sidebar-push-btn',
+          attr: { 'aria-label': 'Push to Zotero', title: 'Push to Zotero' },
+        });
+        setIcon(pushBtn, 'arrow-up-right-square');
+        pushBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          void this.pushToZotero(paper);
+        });
+      }
+
       // ---- Date line: "Added Jul 11, 2026, 14:30" -------------------------
       const dateLine = content.createDiv({ cls: 'researchvault-sidebar-row-line researchvault-sidebar-row-line--date' });
       dateLine.createEl('span', { text: 'Added ', cls: 'researchvault-sidebar-row-date-label' });
@@ -678,6 +706,29 @@ export class ProjectsSidebarView extends ItemView {
   }
 
   /**
+   * 5.2: push one paper to Zotero via the desktop connector. Target is the
+   * collection currently selected in the Zotero window (user-locked v1
+   * design). All failures degrade to a single Notice; nothing throws.
+   */
+  private async pushToZotero(paper: Paper): Promise<void> {
+    const local = this.rv.ensureZoteroLocalClient();
+    if (!local) return;
+    try {
+      const collection = await local.getSelectedCollection();
+      if (!collection) {
+        new Notice('Researchvault: select a collection in Zotero first, then push again.');
+        return;
+      }
+      const item = paperToConnectorItem(paper);
+      await local.pushItems([item]);
+      new Notice(`ResearchVault: pushed "${paper.title}" to Zotero collection "${collection.name}".`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      new Notice(`ResearchVault: ${msg}`);
+      }
+  }
+
+  /**
    * Fire-and-forget priority change. Routes through `updatePaper` so listeners
    * see the canonical `paperUpdated` event, then re-renders.
    */
@@ -694,6 +745,31 @@ export class ProjectsSidebarView extends ItemView {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * 5.2: map a `Paper` to Zotero's connector saveItems item shape. Only
+ * fields we can fill honestly; empty creators lists are still fine for
+ * Zotero (it saves the item with a bare title).
+ */
+function paperToConnectorItem(paper: Paper): ConnectorItem {
+  const firstNames = paper.authorFirstNames ?? [];
+  const creators = paper.authors.map((lastName, i) => ({
+    creatorType: 'author' as const,
+    firstName: firstNames[i] ?? '',
+    lastName,
+  }));
+  return {
+    itemType: 'journalArticle',
+    title: paper.title,
+    creators,
+    DOI: paper.doi,
+    date: paper.year ? String(paper.year) : undefined,
+    abstractNote: paper.abstract,
+    url: paper.url,
+    tags: [{ tag: 'researchvault' }],
+    id: `urn:researchvault:${paper.citekey}`,
+  };
+}
 
 function groupByStatus(papers: Paper[]): Map<ReadingStatus, Paper[]> {
   const map = new Map<ReadingStatus, Paper[]>();

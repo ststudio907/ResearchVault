@@ -72,6 +72,8 @@ ResearchVault's AI features send only user-selected text (papers, notes, chat in
 
 **Zotero sync** (opt-in, off by default under **Settings → Zotero sync**) sends only library read requests — plus your search terms — to `api.zotero.org`, using the account ID and read-only API key you provide. No vault content is sent. The API key is stored locally in this vault's plugin settings file.
 
+**Zotero push** (opt-in, off by default under **Settings → Zotero push (desktop)**, desktop only) sends a paper's metadata (title, authors, year, DOI, abstract) to the Zotero desktop app running on the same computer, via Zotero's local connector server on `127.0.0.1:23119`. All traffic stays on your machine — nothing is sent to any server. The push button appears only when Zotero is actually running.
+
 See the [Obsidian plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines) and [developer policies](https://docs.obsidian.md/Developer+policies) for the constraints that shaped these choices.
 
 ## License

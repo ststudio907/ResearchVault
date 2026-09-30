@@ -317,6 +317,27 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           await this.rv.saveSettings();
         });
       });
+
+    // --- 5.2 (D30 layer b): local push-back -------------------------------
+    new Setting(root).setName('Zotero push (desktop)').setHeading();
+    root.createEl('p', {
+      text:
+        'Push papers from the sidebar into the Zotero desktop app. Requires Zotero 7 running on ' +
+        'this computer. All traffic stays on this machine (loopback) — nothing is sent to any ' +
+        'server. When Zotero is not running, the push button simply does not appear.',
+      cls: 'setting-item-description',
+    });
+
+    new Setting(root)
+      .setName('Enable Zotero push')
+      .setDesc('Off by default. When on (and Zotero is running), a push button appears on each sidebar paper row.')
+      .addToggle((toggle) => {
+        toggle.setValue(this.rv.settings.zotero.enableLocalPush);
+        toggle.onChange(async (value) => {
+          this.rv.settings.zotero.enableLocalPush = value;
+          await this.rv.saveSettings();
+        });
+      });
   }
 
   private renderAI(root: HTMLElement): void {
