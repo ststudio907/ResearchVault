@@ -1,14 +1,18 @@
 // src/services/vault-indexer.ts
 //
-// In-memory fuzzy search index over the plugin's `Paper` records, built on
-// fuse.js. Subscribes to the plugin's typed EventBus so the index stays fresh
-// as papers are imported, their status flips, or new quotes are captured.
+// In-memory fuzzy search over the plugin's `Paper` records, using Obsidian's
+// native `prepareFuzzySearch` (D33, 2026-10 — replaces fuse.js, which was
+// 26.4 KB of the bundle for behaviour the host app already ships). The
+// index itself is a plain Map; search applies per-field weights at query
+// time. Subscribes to the plugin's typed EventBus so the store stays fresh
+// as papers are imported, edited, or removed.
 //
 // Sprint 3 surface (this phase): `hydrate`, `searchPapers`, and incremental
 // `addToIndex` / `removeFromIndex`. The remaining stubs (graph, AI context
 // prep) stay as `notImplemented` until later sub-passes.
 
-import Fuse from 'fuse.js';
+import { prepareFuzzySearch } from 'obsidian';
+import type { SearchResult } from 'obsidian';
 import type { Paper, LiteratureNote, ReadingStatus, Priority } from '../types';
 import type { ResearchVaultPlugin } from '../core/plugin';
 
@@ -73,10 +77,7 @@ interface IndexedPaper {
 const QUOTE_SNIPPET_MAX_CHARS = 400;
 
 export class VaultIndexer {
-  /** Fuse instance — recreated on every `rebuild`; patched incrementally otherwise. */
-  private fuse: Fuse<IndexedPaper> | null = null;
-
-  /** Local store kept in lock-step with the Fuse instance. */
+  /** Local store; search is computed per query over this map. */
   private byId = new Map<string, IndexedPaper>();
 
   /** Unsubscribe handles returned by `eventBus.on()`; called from `dispose()`. */
@@ -99,11 +100,9 @@ export class VaultIndexer {
     this.dispose();
 
     const all = this.plugin.paperService.getAll();
-    const now = Date.now();
     for (const paper of all) {
       this.byId.set(paper.id, projectFor(paper));
     }
-    this.rebuild();
 
     // Incremental updates: each event mutates one record, then we emit so
     // the sidebar can re-render its result list.
@@ -120,8 +119,6 @@ export class VaultIndexer {
     );
 
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
-    // `now` is intentionally unused; kept here as a marker for future last-built timestamps.
-    void now;
   }
 
   /**
@@ -131,7 +128,6 @@ export class VaultIndexer {
    */
   dispose(): void {
     for (const off of this.unsubscribers.splice(0)) off();
-    this.fuse = null;
     this.byId.clear();
   }
 
@@ -141,30 +137,44 @@ export class VaultIndexer {
 
   /**
    * Fuzzy search across all indexed papers. The `query` is matched against
-   * weighted fields (title, authors, keywords, quotes, citekey, venue); the
-   * optional `filters` are applied as a post-filter on the Fuse result set.
+   * weighted fields (title, authors, keywords, quotes, citekey, venue) via
+   * Obsidian's `prepareFuzzySearch`; the optional `filters` are applied as a
+   * post-filter on the match set.
    */
   searchPapers(query: string, filters?: SearchFilters): Paper[] {
-    if (!this.fuse) return [];
-
     const trimmed = query.trim();
-    let candidates: IndexedPaper[];
+    let candidates: Array<{ item: IndexedPaper; score: number }>;
 
     if (!trimmed) {
       // No query: return every paper (still subject to filters).
-      candidates = [...this.byId.values()];
+      candidates = [...this.byId.values()].map((item) => ({ item, score: 0 }));
     } else {
-      const results = this.fuse.search(trimmed, { limit: 200 });
-      candidates = results.map((r) => r.item);
+      const fuzzy = prepareFuzzySearch(trimmed);
+      candidates = [];
+      for (const item of this.byId.values()) {
+        const score = fuzzyScore(fuzzy, item);
+        if (score !== null) candidates.push({ item, score });
+      }
+      // Cap the fan-out like the old fuse.js `limit: 200`.
+      if (candidates.length > 200) {
+        candidates.sort((a, b) => b.score - a.score);
+        candidates = candidates.slice(0, 200);
+      }
     }
 
-    const filtered = filters ? applyFilters(candidates, filters) : candidates;
-    // Stable order: by `dateAdded` desc, then title asc.
-    filtered.sort((a, b) => {
-      if (b.dateAdded !== a.dateAdded) return b.dateAdded - a.dateAdded;
-      return a.title.localeCompare(b.title);
+    // Stable order: match score desc (0 for the no-query path), then
+    // `dateAdded` desc, then title asc.
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.item.dateAdded !== a.item.dateAdded) {
+        return b.item.dateAdded - a.item.dateAdded;
+      }
+      return a.item.title.localeCompare(b.item.title);
     });
-    return filtered.map((p) => p.paper);
+
+    let items = candidates.map((c) => c.item);
+    if (filters) items = applyFilters(items, filters);
+    return items.map((p) => p.paper);
   }
 
   /** Stub — note-level search belongs to a future sprint once note bodies are indexed. */
@@ -214,9 +224,7 @@ export class VaultIndexer {
 
   /** Public counterpart for paper deletion. */
   removeFromIndex(paperId: string): void {
-    if (!this.byId.has(paperId)) return;
-    this.byId.delete(paperId);
-    this.rebuild();
+    if (!this.byId.delete(paperId)) return;
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
   }
 
@@ -225,7 +233,6 @@ export class VaultIndexer {
     // We rely on event subscriptions for paper-level changes. File-level
     // updates from outside the plugin are picked up the next time
     // `PaperService` re-emits a paper event. Kept for API stability.
-    this.rebuild();
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
   }
 
@@ -235,32 +242,7 @@ export class VaultIndexer {
 
   private onPaperUpsert(paper: Paper): void {
     this.byId.set(paper.id, projectFor(paper));
-    // Cheaper than rebuild for a single change: rebuild Fuse from the map.
-    // fuse.js `setCollection` reuses the existing in-memory index in most
-    // cases, so cost is roughly O(n) tokens, not O(n²).
-    this.rebuild();
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
-  }
-
-  private rebuild(): void {
-    const docs = [...this.byId.values()];
-    // 2.8.Sidebar: lower the per-token match length so 1-character and
-    // partial-prefix queries return hits, and loosen the threshold slightly so
-    // fuzzy matches against longer titles / author names still surface.
-    this.fuse = new Fuse<IndexedPaper>(docs, {
-      keys: [
-        { name: 'title', weight: 0.4 },
-        { name: 'authorsText', weight: 0.2 },
-        { name: 'keywordsText', weight: 0.2 },
-        { name: 'quoteSnippets', weight: 0.1 },
-        { name: 'citekey', weight: 0.05 },
-        { name: 'venue', weight: 0.05 },
-      ],
-      threshold: 0.4,
-      ignoreLocation: true,
-      minMatchCharLength: 1,
-      includeScore: false,
-    });
   }
 
   private notImplemented(method: string): Error {
@@ -273,6 +255,39 @@ export class VaultIndexer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Fields matched per query with their weights (D33 — mirrors the old fuse.js
+ * key weights so search ranking stays familiar: title dominates, venue and
+ * citekey nudge ties, quotes contribute least).
+ */
+const SEARCH_FIELDS: ReadonlyArray<{ weight: number; text: (p: IndexedPaper) => string }> = [
+  { weight: 0.4, text: (p) => p.title },
+  { weight: 0.2, text: (p) => p.authorsText },
+  { weight: 0.2, text: (p) => p.keywordsText },
+  { weight: 0.1, text: (p) => p.quoteSnippets },
+  { weight: 0.05, text: (p) => p.citekey },
+  { weight: 0.05, text: (p) => p.venue },
+];
+
+/**
+ * Highest weighted match over `SEARCH_FIELDS`, or null when no field matches.
+ * Obsidian's fuzzy score is <= 0 (closer to 0 = better), so multiplying by
+ * the weight still orders strong title hits above weak quote hits.
+ */
+function fuzzyScore(
+  fuzzy: (text: string) => SearchResult | null,
+  item: IndexedPaper,
+): number | null {
+  let best: number | null = null;
+  for (const field of SEARCH_FIELDS) {
+    const match = fuzzy(field.text(item));
+    if (!match) continue;
+    const weighted = match.score * field.weight;
+    if (best === null || weighted > best) best = weighted;
+  }
+  return best;
+}
 
 function projectFor(paper: Paper): IndexedPaper {
   // 2.8.E — `paper.authors` is the last-name string[]; if a parallel
