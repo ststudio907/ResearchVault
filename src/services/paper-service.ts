@@ -8,7 +8,7 @@
 // each of those is its own follow-up sub-task (see plans/plan.md §7 / §13).
 //
 
-import { Notice, TFile, TFolder, normalizePath } from 'obsidian';
+import { TFile, TFolder, normalizePath } from 'obsidian';
 import type {
   Paper,
   PaperSource,
@@ -47,7 +47,12 @@ type PaperFrontmatter = {
   rating?: number;
   /** ISO date+time string per `D24`. In-memory `Paper.dateAdded` stays as epoch ms. */
   dateAdded: string;
-  dateModified: string;
+  /**
+   * D33 (2026-10): no longer written. `Paper.dateModified` is derived from
+   * `file.stat.mtime`. Older notes may still carry this key; it is ignored
+   * on read and dropped on the next persist.
+   */
+  dateModified?: string;
   dateRead?: string;
   source: PaperSource;
   importedFrom?: string;
@@ -95,15 +100,23 @@ export interface PaperManualInput {
 export class PaperService {
   /** Active in-memory record of the on-disk paper files. Recomputed by `hydrate()`. */
   private byId = new Map<string, Paper>();
-  /** Reverse index: citekey -> id, kept consistent with `byId` on every mutation. */
+  /** Reverse index: lower-cased citekey -> id, kept consistent with `byId` on every mutation. */
   private citekeyToId = new Map<string, string>();
-  private initialized = false;
+  /**
+   * Reverse index: lower-cased canonical note path (`<papersFolder>/<citekey>.md`) -> id.
+   * Lets vault `rename`/`delete` handlers find a paper in O(1) even after the
+   * file is gone (previously a linear scan that resolved files via the vault,
+   * which silently missed deleted/renamed files).
+   */
+  private pathToId = new Map<string, string>();
+  /** Per-path debounce timers for the vault `modify` handler (see `scheduleSync`). */
+  private syncTimers = new Map<string, number>();
   /**
    * Sidebar-overhaul fix B (2026-09-28): paths we just wrote through
    * `persistPaper` / `addQuote`. The vault `modify` handler in `plugin.ts`
    * consumes a matching marker and skips the echo handling for that one
    * event, so our own writes are never mistaken for external edits (which
-   * previously let `onPaperFileModified` re-stamp from a stale snapshot and
+   * previously let the 2.8.D re-stamp resurrect a stale snapshot and
    * clobber in-flight changes). Markers are consumed exactly once; a failed
    * write removes its marker in the helper below.
    */
@@ -123,37 +136,40 @@ export class PaperService {
    * from each file's frontmatter. Files missing required citekey / title /
    * year are silently skipped (logged) so a stray markdown file does not
    * poison the index.
+   *
+   * Phase 1 cleanup (2026-10): must run after `workspace.onLayoutReady` so the
+   * metadata cache is populated; frontmatter is then read from
+   * `metadataCache` (no disk I/O) with a `cachedRead` fallback. Startup no
+   * longer creates folders — `createManual` / project creation do that when
+   * they actually need to write.
    */
   async hydrate(): Promise<void> {
     this.byId.clear();
     this.citekeyToId.clear();
+    this.pathToId.clear();
 
     for (const project of this.plugin.settings.projects) {
-      // Best-effort: make sure folders exist even if a project was created
-      // before Sprint 2 migration. Silent if already there.
-      try {
-        await this.projectManager.ensureProjectFolders(project.id);
-      } catch (err) {
-         
-        console.warn('[ResearchVault] PaperService: failed to ensure folders for', project.name, err);
-      }
-
       const folder = this.plugin.app.vault.getAbstractFileByPath(
         this.projectManager.getProjectPapersFolder(project.id),
       );
       if (!(folder instanceof TFolder)) continue;
 
-      for (const child of folder.children) {
-        if (!(child instanceof TFile) || child.extension !== 'md') continue;
-        const paper = await this.readPaperFile(child, project.id);
-        if (paper) {
-          this.byId.set(paper.id, paper);
-          this.citekeyToId.set(paper.citekey, paper.id);
-        }
+      const files = folder.children.filter(
+        (c): c is TFile => c instanceof TFile && c.extension === 'md',
+      );
+      const papers = await Promise.all(
+        files.map((f) => this.readPaperFile(f, project.id, { preferCache: true })),
+      );
+      for (const paper of papers) {
+        if (paper) this.indexPaper(paper);
       }
     }
+  }
 
-    this.initialized = true;
+  /** Cancel pending debounced syncs. Called from `plugin.onunload`. */
+  dispose(): void {
+    for (const handle of this.syncTimers.values()) window.clearTimeout(handle);
+    this.syncTimers.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -283,8 +299,7 @@ export class PaperService {
     const fileContent = joinFrontmatter(toFrontmatter(paper), body);
     await this.plugin.app.vault.create(filePath, fileContent);
 
-    this.byId.set(paper.id, paper);
-    this.citekeyToId.set(paper.citekey.toLowerCase(), paper.id);
+    this.indexPaper(paper);
 
     this.plugin.eventBus.emit('paperImported', paper);
     return paper;
@@ -349,18 +364,14 @@ export class PaperService {
     };
     // Sidebar-overhaul fix A (2026-09-28): update the in-memory index BEFORE
     // persisting. `persistPaper`'s disk write fires a vault `modify` event,
-    // and the handlers we registered for it (`onPaperFileModified`,
-    // `syncFromFile`) read this index. Updating it first means the
-    // re-stamp's 2-second guard sees the fresh `dateModified` and skips,
-    // and `syncFromFile`'s `papersEqual` short-circuits — the pre-fix order
-    // let the re-stamp resurrect the STALE pre-change paper and clobber the
-    // user's edit on disk (the "status changes then reverts right away" bug).
+    // and the handlers we registered for it read this index; updating first
+    // means a stray `syncFromFile` sees the fresh values and short-circuits.
     // If the write fails we roll the index back so memory never diverges.
-    this.byId.set(next.id, next);
+    this.indexPaper(next);
     try {
       await this.persistPaper(next, { refreshAttachedPdf: next.pdfPath !== current.pdfPath });
     } catch (err) {
-      this.byId.set(current.id, current);
+      this.indexPaper(current);
       throw err;
     }
     // `paperUpdated` is the canonical signal for `updatePaper` so subscribers (sidebar, indexer)
@@ -403,12 +414,13 @@ export class PaperService {
 
     const file = this.findPaperFile(paper);
     if (file) {
-      const existing = await this.plugin.app.vault.read(file);
-      const { body } = splitFrontmatter(existing);
       const section = renderQuoteSection(storedQuote);
-      const heading = body.includes('## Quotes') ? '' : '## Quotes\n\n';
-      const nextBody = `${body.trimEnd()}\n\n${heading}${section}`;
-      await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
+      await this.selfAwareProcess(file, (existing) => {
+        const { body } = splitFrontmatter(existing);
+        const heading = body.includes('## Quotes') ? '' : '## Quotes\n\n';
+        const nextBody = `${body.trimEnd()}\n\n${heading}${section}`;
+        return joinFrontmatter(toFrontmatter(paper), nextBody);
+      });
     }
 
     return storedQuote;
@@ -511,7 +523,7 @@ export class PaperService {
       // Required fields vanished but the file still exists — drop it from the index so the sidebar
       // does not show a stale entry. Callers (plugin.onload) only wire sync for papers/ folders, so
       // this is essentially a "we lost the citekey and can't recover" branch.
-      this.dropByPath(file.path);
+      this.dropAtPath(file.path);
       return null;
     }
 
@@ -520,24 +532,50 @@ export class PaperService {
       return previous;
     }
 
-    this.byId.set(next.id, next);
-    if (previous?.citekey.toLowerCase() !== next.citekey.toLowerCase()) {
-      if (previous) this.citekeyToId.delete(previous.citekey.toLowerCase());
-      this.citekeyToId.set(next.citekey.toLowerCase(), next.id);
-    }
+    this.indexPaper(next);
     this.plugin.eventBus.emit('paperUpdated', next);
     return next;
   }
 
   /**
-   * Drop a paper from the in-memory index by its `paper.id`. Public so
-   * `vault.on('rename'|'delete')` handlers in `plugin.ts` can call it.
+   * Debounced entry point for the vault `modify` handler. Obsidian autosaves
+   * roughly every 2 s while the user types, so we coalesce bursts into a
+   * single `syncFromFile` per path. Replaces the old 2.8.D handler that
+   * re-wrote frontmatter on every keystroke-save (D33).
+   */
+  scheduleSync(file: TFile): void {
+    if (file.extension !== 'md' || !this.findOwnerProject(file.path)) return;
+    const pending = this.syncTimers.get(file.path);
+    if (pending !== undefined) window.clearTimeout(pending);
+    const handle = window.setTimeout(() => {
+      this.syncTimers.delete(file.path);
+      void this.syncFromFile(file).catch((err) => {
+        console.warn('[ResearchVault] PaperService: sync failed for', file.path, err);
+      });
+    }, SYNC_DEBOUNCE_MS);
+    this.syncTimers.set(file.path, handle);
+  }
+
+  /**
+   * Drop a paper from the in-memory index by its `paper.id`. Keeps all three
+   * reverse indexes (citekey, path) consistent.
    */
   dropFromIndex(paperId: string): void {
     const paper = this.byId.get(paperId);
     if (!paper) return;
     this.byId.delete(paperId);
     this.citekeyToId.delete(paper.citekey.toLowerCase());
+    const path = canonicalPathOf(paper);
+    if (path) this.pathToId.delete(path.toLowerCase());
+  }
+
+  /** Insert or replace a paper in `byId` and every reverse index. */
+  private indexPaper(paper: Paper): void {
+    if (this.byId.has(paper.id)) this.dropFromIndex(paper.id);
+    this.byId.set(paper.id, paper);
+    this.citekeyToId.set(paper.citekey.toLowerCase(), paper.id);
+    const path = canonicalPathOf(paper);
+    if (path) this.pathToId.set(path.toLowerCase(), paper.id);
   }
 
   /**
@@ -547,7 +585,7 @@ export class PaperService {
    */
   async pathChanged(opts: { oldPath?: string; newPath?: string }): Promise<void> {
     if (opts.oldPath) {
-      this.dropPaperAtPath(opts.oldPath);
+      this.dropAtPath(opts.oldPath);
     }
     if (opts.newPath) {
       const file = this.plugin.app.vault.getAbstractFileByPath(opts.newPath);
@@ -558,50 +596,8 @@ export class PaperService {
   }
 
   // -------------------------------------------------------------------------
-  // 2.8.D — `dateModified` re-stamp on every body edit
+  // Self-write tracking + path lookups
   // -------------------------------------------------------------------------
-
-  /**
-   * Find an in-memory paper by its on-disk file path. Linear scan, but the
-   * index never holds more than a few hundred papers in a typical vault so
-   * O(n) is fine and avoids needing a back-index by path. The lookup uses
-   * the same canonical `<papersFolder>/<citekey>.md` shape `persistPaper`
-   * writes, so the two never diverge.
-   */
-  private findByPath(filePath: string): Paper | undefined {
-    const wanted = filePath.toLowerCase();
-    for (const paper of this.byId.values()) {
-      const folder = papersFolderOf(paper);
-      if (!folder) continue;
-      if (normalizePath(`${folder}/${paper.citekey}.md`).toLowerCase() === wanted) {
-        return paper;
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Vault `modify` handler that re-stamps `paper.dateModified` whenever a
-   * paper note is edited externally. `syncFromFile` only catches frontmatter-
-   * level changes; this fills the gap so body edits (footnote tweaks,
-   * section rewrites, quote fixups) also surface a fresh `dateModified`.
-   *
-   * Echoes of our OWN writes are already filtered out upstream: the vault
-   * `modify` handler in `plugin.ts` consumes a `selfWritePaths` marker
-   * (armed by `writeTracked`) before calling this. The 2-second guard below
-   * remains as a second line of defense for any path that slipped through
-   * without a marker.
-   */
-  async onPaperFileModified(file: TFile): Promise<void> {
-    const paper = this.findByPath(file.path);
-    if (!paper) return;
-    const next = Date.now();
-    if (next - paper.dateModified < 2_000) return;
-    const updated: Paper = { ...paper, dateModified: next };
-    this.byId.set(updated.id, updated);
-    await this.persistPaper(updated);
-    this.plugin.eventBus.emit('paperUpdated', updated);
-  }
 
   /**
    * Sidebar-overhaul fix B (2026-09-28): single choke point for every write
@@ -609,11 +605,15 @@ export class PaperService {
    * just before the write and disarms it on failure, so the vault `modify`
    * event the write triggers is recognized as ours in `plugin.ts` exactly
    * once — success or not.
+   *
+   * Phase 1 cleanup (2026-10): uses `vault.process` so the read-modify-write
+   * is atomic — a user keystroke-save between our read and our write can no
+   * longer be overwritten.
    */
-  private async selfAwareModify(file: TFile, data: string): Promise<void> {
+  private async selfAwareProcess(file: TFile, fn: (data: string) => string): Promise<void> {
     this.selfWritePaths.add(file.path);
     try {
-      await this.plugin.app.vault.modify(file, data);
+      await this.plugin.app.vault.process(file, fn);
     } catch (err) {
       this.selfWritePaths.delete(file.path);
       throw err;
@@ -627,36 +627,37 @@ export class PaperService {
    * edit.
    */
   consumeSelfWrite(path: string): boolean {
-    if (!this.selfWritePaths.delete(path)) return false;
-    return true;
+    return this.selfWritePaths.delete(path);
   }
 
   /**
-   * Iterate the in-memory index, drop any paper whose resolved file matches
-   * the supplied absolute path. Bails after the first match because citekeys
-   * are unique within a project.
+   * Resolve the paper id for a note path. O(1) via `pathToId`; falls back to
+   * the basename-as-citekey lookup for notes whose basename is the citekey
+   * but whose recorded folder differs. Works after the file is already gone
+   * from the vault (rename/delete).
    */
-  private dropPaperAtPath(filePath: string): void {
-    for (const paper of [...this.byId.values()]) {
-      const file = this.findPaperFile(paper);
-      if (file?.path === filePath) {
-        this.dropFromIndex(paper.id);
-        this.plugin.eventBus.emit('paperRemoved', { paperId: paper.id });
-        return;
-      }
-    }
-  }
-
-  /**
-   * Remove a paper from the index when its on-disk file disappeared from the
-   * vault (rename-away or trash). Looks up by the file basename against the
-   * citekey reverse-index.
-   */
-  private dropByPath(filePath: string): void {
+  private idAtPath(filePath: string): string | undefined {
+    const byPath = this.pathToId.get(normalizePath(filePath).toLowerCase());
+    if (byPath) return byPath;
     const stem = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? '';
-    if (!stem) return;
-    const cachedId = this.citekeyToId.get(stem.toLowerCase());
-    if (cachedId) this.dropFromIndex(cachedId);
+    if (!stem) return undefined;
+    const id = this.citekeyToId.get(stem.toLowerCase());
+    if (!id) return undefined;
+    // Only accept the citekey fallback when the paper actually lived in this folder.
+    const paper = this.byId.get(id);
+    const folder = paper ? papersFolderOf(paper) : undefined;
+    const parent = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
+    return folder === parent ? id : undefined;
+  }
+
+  /**
+   * Drop the paper (if any) stored at `filePath` and emit `paperRemoved`.
+   */
+  private dropAtPath(filePath: string): void {
+    const id = this.idAtPath(filePath);
+    if (!id) return;
+    this.dropFromIndex(id);
+    this.plugin.eventBus.emit('paperRemoved', { paperId: id });
   }
 
   /**
@@ -688,24 +689,42 @@ export class PaperService {
   private requireById(id: string): Paper {
     const paper = this.byId.get(id);
     if (!paper) {
-      new Notice(`ResearchVault: no paper with id "${id}".`);
+      // Throw-only: callers decide how to surface the failure (Notice, modal).
       throw new Error(`Paper not found: ${id}`);
     }
     return paper;
   }
 
-  /** Read a single paper markdown file and rebuild a `Paper` from its frontmatter. */
-  private async readPaperFile(file: TFile, projectId: string): Promise<Paper | null> {
+  /**
+   * Read a single paper markdown file and rebuild a `Paper` from its
+   * frontmatter. With `preferCache` the frontmatter is taken from
+   * `metadataCache` (hydration only — the caller runs after layout-ready, so
+   * the cache is warm and no disk I/O is needed); any cache miss falls back
+   * to `cachedRead` + manual parsing.
+   */
+  private async readPaperFile(
+    file: TFile,
+    projectId: string,
+    options: { preferCache?: boolean } = {},
+  ): Promise<Paper | null> {
     try {
-      const raw = await this.plugin.app.vault.read(file);
-      const { frontmatter } = splitFrontmatter<Partial<PaperFrontmatter>>(raw);
+      let frontmatter: Partial<PaperFrontmatter> | undefined;
+      if (options.preferCache) {
+        const cached = this.plugin.app.metadataCache.getFileCache(file);
+        if (cached?.frontmatter) {
+          frontmatter = cached.frontmatter;
+        }
+      }
+      if (!frontmatter) {
+        const raw = await this.plugin.app.vault.cachedRead(file);
+        frontmatter = splitFrontmatter<Partial<PaperFrontmatter>>(raw).frontmatter;
+      }
       if (!frontmatter.title || !frontmatter.citekey || !frontmatter.year) {
         console.warn('[ResearchVault] PaperService: skipping file without required fields', file.path);
         return null;
       }
       return frontmatterToPaper(frontmatter, projectId, file);
     } catch (err) {
-       
       console.warn('[ResearchVault] PaperService: failed to read', file.path, err);
       return null;
     }
@@ -786,9 +805,10 @@ export class PaperService {
       await this.plugin.app.vault.create(path, joinFrontmatter(toFrontmatter(paper), ''));
       return;
     }
-    const existing = await this.plugin.app.vault.read(file);
-    const { body } = splitFrontmatter(existing);
-    await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), body));
+    await this.selfAwareProcess(file, (existing) => {
+      const { body } = splitFrontmatter(existing);
+      return joinFrontmatter(toFrontmatter(paper), body);
+    });
   }
 
   /**
@@ -800,10 +820,11 @@ export class PaperService {
   private async refreshAttachedPdfBody(paper: Paper): Promise<void> {
     const file = this.findPaperFile(paper);
     if (!file) return; // Nothing on disk yet — the next persistPaper will create the file.
-    const existing = await this.plugin.app.vault.read(file);
-    const { body } = splitFrontmatter(existing);
-    const nextBody = upsertAttachedPdfSection(body, paper.pdfPath);
-    await this.selfAwareModify(file, joinFrontmatter(toFrontmatter(paper), nextBody));
+    await this.selfAwareProcess(file, (existing) => {
+      const { body } = splitFrontmatter(existing);
+      const nextBody = upsertAttachedPdfSection(body, paper.pdfPath);
+      return joinFrontmatter(toFrontmatter(paper), nextBody);
+    });
   }
 
   private notImplemented(method: string): Error {
@@ -876,7 +897,8 @@ function toFrontmatter(paper: Paper): PaperFrontmatter {
     priority: paper.priority,
     rating: paper.rating,
     dateAdded: toLocalDateTime(paper.dateAdded),
-    dateModified: toLocalDateTime(paper.dateModified),
+    // D33: dateModified is derived from file.stat.mtime — never written back.
+    dateModified: undefined,
     dateRead: paper.dateRead ? toLocalDateTime(paper.dateRead) : undefined,
     source: paper.source,
     importedFrom: paper.importedFrom,
@@ -964,7 +986,9 @@ function frontmatterToPaper(
     })(),
     rating: typeof fm.rating === 'number' ? fm.rating : undefined,
     dateAdded: fromFrontmatterDate(fm.dateAdded, file.stat.ctime),
-    dateModified: fromFrontmatterDate(fm.dateModified, file.stat.mtime),
+    // D33: always the file's own mtime; any legacy `dateModified` key on
+    // disk is ignored (and removed on the next persist).
+    dateModified: file.stat.mtime,
     // Only stamp dateRead when the frontmatter actually had a parseable value; an unparseable Read date
     // stays absent (interpreted as "not yet read") rather than pinning to a 1970 fallback.
     dateRead: parseOptionalDate(fm.dateRead),
@@ -1121,6 +1145,16 @@ function renderQuoteSection(quote: Quote): string {
   const tagsLine = quote.tags.length > 0 ? `\n#tags: ${quote.tags.join(' ')}\n` : '\n';
   const sourceLine = quote.source ? `\n-- source: ${quote.source}\n` : '\n';
   return `${head}${metaLine}${tagsLine}${sourceLine}`;
+}
+
+/** Debounce window (ms) for vault `modify` events before a `syncFromFile`. */
+const SYNC_DEBOUNCE_MS = 750;
+
+/** The canonical `<papersFolder>/<citekey>.md` path for a paper, or undefined. */
+function canonicalPathOf(paper: Paper): string | undefined {
+  const folder = papersFolderOf(paper);
+  if (!folder) return undefined;
+  return normalizePath(`${folder}/${paper.citekey}.md`);
 }
 
 /** Fallback template if both settings.templates.paper and project settings are empty. */

@@ -6,7 +6,7 @@
 // plugin updates.
 //
 
-import { TFile, TFolder, normalizePath, Notice } from 'obsidian';
+import { TFile, TFolder, normalizePath } from 'obsidian';
 import type { Project, ProjectCreateConfig, ProjectStats, Paper, PaperSource, ReadingStatus } from '../types';
 import { READING_STATUSES } from '../types';
 import { newId } from '../utils/uuid';
@@ -294,11 +294,21 @@ export class ProjectManager {
   /** Every markdown file living inside the project's folder hierarchy. */
   getProjectFiles(projectId: string): TFile[] {
     const project = this.requireProject(projectId);
-    const prefix = project.folderPath.replace(/\/+$/, '');
-    return this.plugin.app.vault.getMarkdownFiles().filter((f) => {
-      const normalized = f.path.replace(/\/+$/, '');
-      return normalized === prefix || normalized.startsWith(`${prefix}/`);
-    });
+    const root = this.plugin.app.vault.getAbstractFileByPath(
+      project.folderPath.replace(/\/+$/, ''),
+    );
+    if (!(root instanceof TFolder)) return [];
+    // Walk the project folder directly instead of scanning every markdown
+    // file in the vault — O(files under the project), not O(files in vault).
+    const out: TFile[] = [];
+    const walk = (folder: TFolder): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFile) out.push(child);
+        else if (child instanceof TFolder) walk(child);
+      }
+    };
+    walk(root);
+    return out;
   }
 
   /**
@@ -323,7 +333,7 @@ export class ProjectManager {
   private requireProject(id: string): Project {
     const project = this.getProjectById(id);
     if (!project) {
-      new Notice(`ResearchVault: no project with id "${id}".`);
+      // Throw-only: callers decide how to surface the failure (Notice, modal).
       throw new Error(`Project not found: ${id}`);
     }
     return project;

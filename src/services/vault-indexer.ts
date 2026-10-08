@@ -107,10 +107,16 @@ export class VaultIndexer {
 
     // Incremental updates: each event mutates one record, then we emit so
     // the sidebar can re-render its result list.
+    // Phase 1 cleanup bug #1 follow-up: `paperUpdated` and `paperRemoved`
+    // were previously ignored, so the index went stale on any edit path
+    // that did not pass through `paperStatusChanged` (e.g. live sync after
+    // the user edits the note body, or deleting/renaming a note).
     this.unsubscribers.push(
       this.plugin.eventBus.on('paperImported', (paper) => this.onPaperUpsert(paper)),
+      this.plugin.eventBus.on('paperUpdated', (paper) => this.onPaperUpsert(paper)),
       this.plugin.eventBus.on('paperStatusChanged', (paper) => this.onPaperUpsert(paper)),
       this.plugin.eventBus.on('quoteAdded', ({ paper }) => this.onPaperUpsert(paper)),
+      this.plugin.eventBus.on('paperRemoved', ({ paperId }) => this.removeFromIndex(paperId)),
     );
 
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });

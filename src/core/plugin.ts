@@ -146,19 +146,33 @@ export class ResearchVaultPlugin extends Plugin {
     this.projectManager.hydrate();
 
     this.paperService = new PaperService(this, this.projectManager);
-    // Hydrate is async; we don't block plugin load on it so the ribbon and
-    // commands are responsive immediately. Hydration emits no events the
-    // UI needs to react to before the first user action.
-    void this.paperService.hydrate();
 
-    // Indexer is built on top of `paperService`, so it must come after.
+    // Indexer is built on top of `paperService`; the constructor is trivial,
+    // so we create the instance up front and hydrate it once papers are
+    // loaded (see the layout-ready hook below).
     this.vaultIndexer = new VaultIndexer(this);
-    this.vaultIndexer.hydrate();
 
-    // 4. Live sync from the vault (D23). We deliberately register these
-    // before the view/commands so the very first `paperUpdated` event after
-    // `hydrate` is caught by subscribers already in place.
-    this.registerVaultSync();
+    // Hydration waits for the workspace layout so Obsidian's metadata cache
+    // is warm and `readPaperFile` can reuse cached frontmatter instead of
+    // hitting disk for every note. The indexer hydrate MUST run after
+    // `paperService.hydrate()` — previously both were fire-and-forget `void`
+    // calls, so the indexer was built against an empty paper store and
+    // search returned nothing until the sidebar was manually refreshed.
+    // Vault sync comes last: the full scan already covers anything that
+    // changed during startup, and early `modify` events from Obsidian's
+    // initial vault scan can then no longer interleave with `hydrate`
+    // clearing and rebuilding the index.
+    this.app.workspace.onLayoutReady(() => {
+      void (async () => {
+        try {
+          await this.paperService.hydrate();
+        } catch (err) {
+          console.error('[ResearchVault] paper hydration failed', err);
+        }
+        this.vaultIndexer.hydrate();
+        this.registerVaultSync();
+      })();
+    });
 
     // 5. UI: view registration, ribbon, commands, settings tab.
     this.registerView(
@@ -223,6 +237,7 @@ export class ResearchVaultPlugin extends Plugin {
 
   onunload(): void {
     this.vaultIndexer?.dispose();
+    this.paperService?.dispose();
     this.eventBus?.clear();
   }
 
@@ -242,18 +257,15 @@ export class ResearchVaultPlugin extends Plugin {
       this.app.vault.on('modify', (file) => {
         if (file instanceof TFile) {
           // Sidebar-overhaul fix B (2026-09-28): if this event is the echo of
-          // a write we just performed ourselves (`selfAwareModify` armed the
-          // marker), skip external-edit handling entirely. Previously the
-          // echo ran `onPaperFileModified` against the still-stale in-memory
-          // snapshot, which re-stamped the OLD values back to disk and
-          // clobbered in-flight status/priority changes ("changes then
-          // reverts right away"). The 2.8.D 2-second guard stays as a
-          // second line of defense inside `onPaperFileModified`.
+          // a write we just performed ourselves (`selfAwareProcess` armed the
+          // marker), skip external-edit handling entirely — `syncFromFile`
+          // would only re-read what we already wrote.
           if (this.paperService.consumeSelfWrite(file.path)) return;
-          // 2.8.D — re-stamp `dateModified` on every body-or-frontmatter
-          // edit. `syncFromFile` still owns frontmatter-only re-syncs.
-          void this.paperService.onPaperFileModified(file);
-          void this.paperService.syncFromFile(file);
+          // D33: we no longer re-stamp `dateModified` (it is derived from
+          // the file's own mtime). We only schedule a debounced re-sync —
+          // Obsidian autosaves while the user types, so one sync per quiet
+          // window instead of one write per keystroke-save.
+          this.paperService.scheduleSync(file);
         }
       }),
     );
