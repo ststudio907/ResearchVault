@@ -261,7 +261,7 @@ export class ResearchVaultPlugin extends Plugin {
           // marker), skip external-edit handling entirely — `syncFromFile`
           // would only re-read what we already wrote.
           if (this.paperService.consumeSelfWrite(file.path)) return;
-          // D33: we no longer re-stamp `dateModified` (it is derived from
+          // D24 amended: we no longer re-stamp `dateModified` (it is derived from
           // the file's own mtime). We only schedule a debounced re-sync —
           // Obsidian autosaves while the user types, so one sync per quiet
           // window instead of one write per keystroke-save.

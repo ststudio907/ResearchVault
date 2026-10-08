@@ -48,7 +48,7 @@ type PaperFrontmatter = {
   /** ISO date+time string per `D24`. In-memory `Paper.dateAdded` stays as epoch ms. */
   dateAdded: string;
   /**
-   * D33 (2026-10): no longer written. `Paper.dateModified` is derived from
+   * D24 amended (2026-10): no longer written. `Paper.dateModified` is derived from
    * `file.stat.mtime`. Older notes may still carry this key; it is ignored
    * on read and dropped on the next persist.
    */
@@ -541,7 +541,7 @@ export class PaperService {
    * Debounced entry point for the vault `modify` handler. Obsidian autosaves
    * roughly every 2 s while the user types, so we coalesce bursts into a
    * single `syncFromFile` per path. Replaces the old 2.8.D handler that
-   * re-wrote frontmatter on every keystroke-save (D33).
+   * re-wrote frontmatter on every keystroke-save (D24 amended).
    */
   scheduleSync(file: TFile): void {
     if (file.extension !== 'md' || !this.findOwnerProject(file.path)) return;
@@ -897,7 +897,7 @@ function toFrontmatter(paper: Paper): PaperFrontmatter {
     priority: paper.priority,
     rating: paper.rating,
     dateAdded: toLocalDateTime(paper.dateAdded),
-    // D33: dateModified is derived from file.stat.mtime — never written back.
+    // D24 amended: dateModified is derived from file.stat.mtime — never written back.
     dateModified: undefined,
     dateRead: paper.dateRead ? toLocalDateTime(paper.dateRead) : undefined,
     source: paper.source,
@@ -986,7 +986,7 @@ function frontmatterToPaper(
     })(),
     rating: typeof fm.rating === 'number' ? fm.rating : undefined,
     dateAdded: fromFrontmatterDate(fm.dateAdded, file.stat.ctime),
-    // D33: always the file's own mtime; any legacy `dateModified` key on
+    // D24 amended: always the file's own mtime; any legacy `dateModified` key on
     // disk is ignored (and removed on the next persist).
     dateModified: file.stat.mtime,
     // Only stamp dateRead when the frontmatter actually had a parseable value; an unparseable Read date
