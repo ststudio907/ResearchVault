@@ -287,7 +287,7 @@ export class ProjectManager {
       papersByStatus,
       totalNotes: notes.length,
       lastActivity: project.updatedAt,
-      aiTokensUsed: 0, // Wired up in Sprint 4 once AIClient tracks usage.
+      aiTokensUsed: 0, // Reserved — AI features are not shipped in 1.0.
     };
   }
 

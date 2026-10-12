@@ -74,7 +74,7 @@ From `git config` + remote (looked valid, used without re-asking):
 - Modify handler: `consumeSelfWrite` check, then `paperService.scheduleSync(file)` — no more `onPaperFileModified` write-back.
 - `onunload` also disposes `paperService` (clears debounce timers).
 
-**`src/services/paper-service.ts`** (now ~1160 lines — Phase 3 splits it)
+**`src/services/paper-service.ts`** (partially split in Phase 3 — see §11)
 - `hydrate`: no `ensureProjectFolders`; per-project `Promise.all`; `readPaperFile(f, projectId, { preferCache: true })` uses `metadataCache.getFileCache` frontmatter, falling back to `cachedRead` + manual parse. Also fixes a latent **citekey casing bug** (index now keyed lower-cased, matching `getByCitekey`).
 - New `pathToId: Map<lcPath, id>`; single mutation helpers `indexPaper` / `dropFromIndex` keep all three maps consistent; `idAtPath` (O(1) + guard) and `dropAtPath` (emits `paperRemoved`) replace `findByPath`, `dropByPath`, `dropPaperAtPath`.
 - `scheduleSync(file)` — 750 ms per-path debounce → `syncFromFile`; timers canceled in new `dispose()`.
@@ -102,9 +102,23 @@ From `git config` + remote (looked valid, used without re-asking):
 
 ## 10. Open items / watch list
 
-- `updateIndex(_file)` kept for API stability but now just emits `indexUpdated` — check callers in Phase 3, delete if unused.
 - `syncFromFile` still uses `cachedRead` (not metadataCache frontmatter) — deliberate: the cache may lag the write; fine.
 - Confirm in Phase 4 which network paths still use `window.fetch` (citation providers, Zotero) and route them through `requestUrl` (Zotero local connector already does since commit `d0f37d9`).
 - `versions.json` currently lists 1.0.0 — needs the 0.9.0 mapping in Phase 6.
-- `paper-service.ts` still contains `PaperService.exportBibtex` (notImplemented) — Phase 3/4 decision: delete with the other stubs.
+
+## 11. Phase 3 changes (detail)
+
+**Dead-code deletion** (caller-verified by grep before removal — no references anywhere in `src/`):
+- `src/services/ai-client.ts` deleted whole-file. Every method threw `notImplemented`; the class had zero imports. Stale mentions in `lru-cache.ts` / `project-manager.ts` comments reworded.
+- `paper-service.ts` stubs removed: `createFromDoi`, `createFromPdf` (tombstone — compile-time safety makes it redundant), `importBibtex`, `exportBibtex`, `updateReadingProgress`, `extractQuotesFromPdf`, `findCitationsInPdf`, `addCitation`, `addRelated`, and the private `notImplemented` helper. Header comment updated; `docs/REFACTOR_CONTEXT.md` is now the pointer for the deferred roadmaps.
+- `vault-indexer.ts` stubs removed: `searchNotes`, `findUnlinkedMentions`, `getCitationGraph`, `getRelatedPapers`, `getChunksForPaper`, `getProjectContext`, `updateIndex`, the private `notImplemented` helper, the orphaned `TextChunk` / `CitationGraph` interfaces, the unused `LiteratureNote` import, and the trailing `TFile` re-import hack. `addToIndex` / `removeFromIndex` kept — thin wrappers over `onPaperUpsert` / `byId.delete` used by the `PaperService` sync paths.
+- `paper-import-modal.ts` header comment reworded (no `notImplemented` references remain in the codebase).
+
+**File splits**
+- New `src/services/papers/paper-file-format.ts` (~330 lines): `PaperFrontmatter` type, `DEFAULT_PAPER_TEMPLATE`, `toFrontmatter`, `frontmatterToPaper`, `templateDataFor`, `upsertAttachedPdfSection`, `renderQuoteSection`, plus internal `normaliseAuthorName` / `authorsFromLegacy` / `trimOrUndefined` / `isoDate` / `coerceFrontmatterScalar`. Stateless pure functions — the Phase 5 Vitest targets.
+- New `src/services/papers/paper-paths.ts`: `papersFolderOf`, `canonicalPathOf`, `SYNC_DEBOUNCE_MS`.
+- `paper-service.ts`: 1160 → 780 lines (class + `papersEqual`/`authorsEqual`/`keywordsEqual` kept adjacent to the sync logic that consumes them).
+- **Deferred splits** (recorded here instead of acted on): `paper-import-modal.ts` (1056), `projects-sidebar-view.ts` (861), `settings-tab.ts` (477), and the remaining `paper-service.ts` class body (~700). Rationale: each is a single cohesive Obsidian object (one Modal class / one ItemView class / one PluginSettingTab class / one service class with shared private Maps) and splitting them means either facade re-exports or `this`-sharing across files, which the architecture rules flag as "clearly worse". Revisit post-1.0 if these files grow.
+
+**Verification**: `tsc --noEmit`, `npm run lint`, `npm run build` all green. Bundle 105.6 KB → 103.9 KB.
 

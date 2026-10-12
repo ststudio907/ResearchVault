@@ -1,11 +1,12 @@
 // src/services/paper-service.ts
 //
-// Sprint 2 — manual + linked-PDF paper import, status transitions, quote capture.
+// Manual + linked-PDF paper import, status transitions, quote capture, live
+// sync from vault `modify`/`rename`/`delete` events.
 // PDF import is link-only (D27): the chosen PDF is copied into the project's
 // `pdfs/` folder and wikilinked from the paper note. PDF text extraction
-// (D27 deferred) and BibTeX import/export (D17) deliberately still throw
-// `notImplemented` so calls surface loudly while we keep the file lean —
-// each of those is its own follow-up sub-task (see plans/plan.md §7 / §13).
+// (D27 deferred), BibTeX import/export (D17), and relationship management
+// are not shipped — the dead stubs were removed in the 2026-10 cleanup
+// (see `docs/REFACTOR_CONTEXT.md`).
 //
 
 import { TFile, TFolder, normalizePath } from 'obsidian';
@@ -17,47 +18,23 @@ import type {
 } from '../types';
 import { READING_STATUSES } from '../types';
 import { generateUniqueCitekey, slugify } from '../utils/citekey';
-import { fromFrontmatterDate, toLocalDateTime } from '../utils/format-date';
 import { joinFrontmatter, splitFrontmatter } from '../utils/frontmatter';
-import { renderTemplate, type TemplateData } from '../utils/template';
+import { renderTemplate } from '../utils/template';
 import { newId } from '../utils/uuid';
 import type { ResearchVaultPlugin } from '../core/plugin';
 import type { ProjectManager } from './project-manager';
-
-/** Keys we promise to round-trip via frontmatter. */
-type PaperFrontmatter = {
-  id: string;
-  citekey: string;
-  title: string;
-  /** Author last names as a YAML list (2.8.E). */
-  authors: string[];
-  /** Optional parallel first names list (2.8.E). */
-  authorFirstNames?: string[];
-  year: number;
-  venue?: string;
-  doi?: string;
-  url?: string;
-  /** Open-access PDF URL (4.1.A) — only set by 4.1.B's provider responses. */
-  oaUrl?: string;
-  pdfPath?: string;
-  abstract?: string;
-  keywords: string[];
-  status: ReadingStatus;
-  priority: Paper['priority'];
-  rating?: number;
-  /** ISO date+time string per `D24`. In-memory `Paper.dateAdded` stays as epoch ms. */
-  dateAdded: string;
-  /**
-   * D24 amended (2026-10): no longer written. `Paper.dateModified` is derived from
-   * `file.stat.mtime`. Older notes may still carry this key; it is ignored
-   * on read and dropped on the next persist.
-   */
-  dateModified?: string;
-  dateRead?: string;
-  source: PaperSource;
-  importedFrom?: string;
-  customFields: Record<string, unknown>;
-};
+import {
+  DEFAULT_PAPER_TEMPLATE,
+  frontmatterToPaper,
+  normaliseAuthorName,
+  renderQuoteSection,
+  templateDataFor,
+  toFrontmatter,
+  trimOrUndefined,
+  upsertAttachedPdfSection,
+  type PaperFrontmatter,
+} from './papers/paper-file-format';
+import { SYNC_DEBOUNCE_MS, canonicalPathOf, papersFolderOf } from './papers/paper-paths';
 
 /** Input shape accepted by `PaperService.createManual`. */
 export interface PaperManualInput {
@@ -305,24 +282,6 @@ export class PaperService {
     return paper;
   }
 
-  // ----- Stubbed per Sprint 2 lean decision -----
-
-  async createFromDoi(_doi: string, _projectId: string): Promise<Paper> {
-    throw this.notImplemented('createFromDoi');
-  }
-
-  /**
-   * Removed in sub-pass 2.7.1. The D27 PDF-importer became the D28 "PDF is an
-   * attachment" path inside `createManual` (via `PaperManualInput.attachPdfFrom`).
-   * Keeping a public stub would invite an old caller to silently synthesize
-   * metadata from a PDF basename, which is exactly the bug we just fixed.
-   */
-  async createFromPdf(_pdfPath: string, _projectId: string): Promise<Paper> {
-    throw new Error(
-      'PaperService.createFromPdf: removed in 2.7.1 (D28). Use createManual({ ..., attachPdfFrom }).',
-    );
-  }
-
   /**
    * Copy a PDF `TFile` from anywhere in the vault into `<pdfsFolder>/<citekey>.pdf`.
    * On a basename collision, suffix `-2`, `-3`, ... until the destination is free.
@@ -338,11 +297,6 @@ export class PaperService {
     }
     await this.plugin.app.vault.createBinary(target, bytes);
     return target;
-  }
-
-
-  async importBibtex(_bibtex: string, _projectId: string): Promise<Paper[]> {
-    throw this.notImplemented('importBibtex');
   }
 
   // -------------------------------------------------------------------------
@@ -390,12 +344,6 @@ export class PaperService {
     return next;
   }
 
-  async updateReadingProgress(_id: string, _progress: number): Promise<void> {
-    // Sprint 2 deferred — `Paper` has no progress field yet, the sidebar will
-    // derive progress from `dateRead` and `status` once we wire that up.
-    throw this.notImplemented('updateReadingProgress');
-  }
-
   // -------------------------------------------------------------------------
   // Quotes
   // -------------------------------------------------------------------------
@@ -424,53 +372,6 @@ export class PaperService {
     }
 
     return storedQuote;
-  }
-
-  /**
-   * Extract quote candidates from the paper's PDF and append them to the paper.
-   *
-   * **Deferred per D27** — `pdfjs-dist` v4 cannot run inside Obsidian's Electron
-   * main process (it calls `process.getBuiltinModule()` at module load and
-   * requires Web Workers at parse time). PDF import is link-only in this build;
-   * this method deliberately throws so any accidental call surfaces loudly
-   * instead of silently producing empty quotes. Use `QuoteCaptureModal` /
-   * `addQuote` for manual quote capture until text extraction is reintroduced.
-   */
-  async extractQuotesFromPdf(_paperId: string): Promise<Quote[]> {
-    throw new Error(
-      'PaperService.extractQuotesFromPdf: PDF text extraction is not available (D27). ' +
-        'Use QuoteCaptureModal or addQuote for manual quote capture instead. ' +
-        'See plans/plan.md D27 for the deferred extraction roadmap.',
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Relationships (Sprint 3 target)
-  // -------------------------------------------------------------------------
-
-  async addCitation(_from: string, _to: string): Promise<void> {
-    throw this.notImplemented('addCitation');
-  }
-
-  async addRelated(_paperId: string, _relatedId: string): Promise<void> {
-    throw this.notImplemented('addRelated');
-  }
-
-  /**
-   * Scan the paper's PDF text for inline citation patterns like "(Author, Year)"
-   * or "[Author Year]". Returns a deduplicated list of unique citations found.
-   *
-   * **Deferred per D27** — PDF text extraction is not available in this build.
-   * This method throws so any accidental call surfaces loudly. Once D27's
-   * extraction roadmap ships (e.g., shimmed into the renderer), this method
-   * will be re-introduced alongside the matcher logic below.
-   */
-  async findCitationsInPdf(_paperId: string): Promise<string[]> {
-    throw new Error(
-      'PaperService.findCitationsInPdf: PDF text extraction is not available (D27). ' +
-        'Citation scanning is deferred until pdfjs-dist can run inside Obsidian. ' +
-        'See plans/plan.md D27 for the deferred extraction roadmap.',
-    );
   }
 
   // -------------------------------------------------------------------------
@@ -678,10 +579,6 @@ export class PaperService {
     return undefined;
   }
 
-  async exportBibtex(_paperIds: string[]): Promise<string> {
-    throw this.notImplemented('exportBibtex');
-  }
-
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
@@ -826,214 +723,11 @@ export class PaperService {
       return joinFrontmatter(toFrontmatter(paper), nextBody);
     });
   }
-
-  private notImplemented(method: string): Error {
-    return new Error(
-      `PaperService.${method} is not implemented yet (deferred from Sprint 2 lean — see plans/plan.md §7).`,
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Trim a single author last-name string. Empty/whitespace-only strings become ''. */
-function normaliseAuthorName(name: string): string {
-  return (name ?? '').trim();
-}
-
-/**
- * 2.8.E — Read the legacy `authors: Author[]` frontmatter shape back into
- * the new `string[]` + `authorFirstNames?` shape. Used only by
- * `frontmatterToPaper` when an existing note predates 2.8.E.
- */
-function authorsFromLegacy(rows: unknown): { lastNames: string[]; firstNames: string[] } {
-  if (!Array.isArray(rows)) return { lastNames: [], firstNames: [] };
-  const lastNames: string[] = [];
-  const firstNames: string[] = [];
-  for (const row of rows) {
-    if (row && typeof row === 'object' && 'lastName' in row) {
-      const r = row as { firstName?: string; lastName?: string };
-      lastNames.push(normaliseAuthorName(String(r.lastName ?? '')));
-      firstNames.push(normaliseAuthorName(String(r.firstName ?? '')));
-    } else if (typeof row === 'string') {
-      lastNames.push(normaliseAuthorName(row));
-      firstNames.push('');
-    }
-  }
-  return { lastNames, firstNames };
-}
-
-/** Fetch the on-disk papers folder from a paper's `customFields`. Returns `undefined` if missing or wrong shape. */
-function papersFolderOf(paper: Paper): string | undefined {
-  const folder = paper.customFields['papersFolder'];
-  return typeof folder === 'string' && folder.length > 0 ? folder : undefined;
-}
-
-function trimOrUndefined(value: string | undefined | null): string | undefined {
-  if (value == null) return undefined;
-  const t = value.trim();
-  return t.length > 0 ? t : undefined;
-}
-
-function toFrontmatter(paper: Paper): PaperFrontmatter {
-  // Dates: epoch ms on the in-memory `Paper`, ISO date+time string on disk (D24).
-  return {
-    id: paper.id,
-    citekey: paper.citekey,
-    title: paper.title,
-    authors: paper.authors,
-    authorFirstNames: paper.authorFirstNames,
-    year: paper.year,
-    venue: paper.venue,
-    doi: paper.doi,
-    url: paper.url,
-    oaUrl: paper.oaUrl,
-    pdfPath: paper.pdfPath,
-    abstract: paper.abstract,
-    keywords: paper.keywords,
-    status: paper.status,
-    priority: paper.priority,
-    rating: paper.rating,
-    dateAdded: toLocalDateTime(paper.dateAdded),
-    // D24 amended: dateModified is derived from file.stat.mtime — never written back.
-    dateModified: undefined,
-    dateRead: paper.dateRead ? toLocalDateTime(paper.dateRead) : undefined,
-    source: paper.source,
-    importedFrom: paper.importedFrom,
-    customFields: paper.customFields,
-  };
-}
-
-function frontmatterToPaper(
-  fm: Partial<PaperFrontmatter>,
-  projectId: string,
-  file: TFile,
-): Paper {
-  const citekey = String(fm.citekey ?? file.basename);
-  const id = String(fm.id ?? citekey);
-  const papersFolder = file.parent?.path ?? '';
-  // Parse an optional ISO/epoch date. Returns `undefined` when the source is null/empty/unparseable,
-  // never pinning `dateRead` to a 1970 fallback that the sidebar would render as a real timestamp.
-  const parseOptionalDate = (raw: unknown): number | undefined => {
-    if (raw == null) return undefined;
-    const parsed = fromFrontmatterDate(raw, Number.NaN);
-    return Number.isNaN(parsed) ? undefined : parsed;
-  };
-  // Dates: accept either new ISO string OR legacy epoch ms already on disk (D24).
-  return {
-    id,
-    citekey,
-    title: String(fm.title ?? file.basename),
-    authors: ((): string[] => {
-      // 2.8.E — three possible shapes on disk:
-      //   new shape: `authors: [Vaswani, Shazeer]` (string[])
-      //   new with first names: same + parallel `authorFirstNames?: [Ashish, Noam]`
-      //   legacy: `authors: [{firstName, lastName}, …]` (object[])
-      if (!Array.isArray(fm.authors)) return [];
-      const sample = fm.authors[0];
-      if (sample && typeof sample === 'object' && 'lastName' in sample) {
-        return authorsFromLegacy(fm.authors).lastNames;
-      }
-      return (fm.authors as unknown[]).map((s) => normaliseAuthorName(coerceFrontmatterScalar(s)));
-    })(),
-    authorFirstNames: ((): string[] | undefined => {
-      // 2.8.E — only set when the parallel array actually existed on disk,
-      // or when the legacy object form had populated firstName fields.
-      if (Array.isArray(fm.authorFirstNames)) {
-        const arr = (fm.authorFirstNames as unknown[]).map((s) => normaliseAuthorName(coerceFrontmatterScalar(s)));
-        return arr.length === 0 ? undefined : arr;
-      }
-      if (Array.isArray(fm.authors) && fm.authors[0] && typeof fm.authors[0] === 'object') {
-        const fromLegacy = authorsFromLegacy(fm.authors).firstNames;
-        return fromLegacy.some((n) => n.length > 0) ? fromLegacy : undefined;
-      }
-      return undefined;
-    })(),
-    year: typeof fm.year === 'number' ? fm.year : new Date(file.stat.ctime).getFullYear(),
-    venue: fm.venue,
-    doi: fm.doi,
-    url: fm.url,
-    // 4.1.A: round-trip oaUrl if it was ever stamped; absent otherwise.
-    oaUrl: fm.oaUrl,
-    pdfPath: fm.pdfPath,
-    abstract: fm.abstract,
-    keywords: Array.isArray(fm.keywords) ? (fm.keywords) : [],
-    status: ((): ReadingStatus => {
-      // Read the raw value unwidened: `fm.status` is typed as the NEW union,
-      // but files written before the 2026-09-30 label redesign may still
-      // carry legacy `queued` / `summarized` on disk.
-      const candidate = fm.status as unknown as string | undefined;
-      if (candidate && READING_STATUSES.includes(candidate as ReadingStatus)) {
-        return candidate as ReadingStatus;
-      }
-      // 2026-09-30 label redesign (§7.5 of plans/sidebar-overhaul-research.md):
-      // legacy values coerce at read time; the file rewrites itself with the
-      // new value on the next persist. `queued` → `unread` (same posture),
-      // `summarized` → `annotating` (synthesis still pending → stays
-      // in-flight so staleness behaves correctly).
-      if (candidate === 'queued') return 'unread';
-      if (candidate === 'summarized') return 'annotating';
-      return 'unread';
-    })(),
-    priority: ((): Paper['priority'] => {
-      const p = fm.priority as unknown as string | undefined;
-      if (p === 'low' || p === 'normal' || p === 'high') return p;
-      // Legacy `medium` maps to the new default tier; legacy `critical`
-      // collapses into `high` (urgency is now time-boxed by lifecycle).
-      return 'normal';
-    })(),
-    rating: typeof fm.rating === 'number' ? fm.rating : undefined,
-    dateAdded: fromFrontmatterDate(fm.dateAdded, file.stat.ctime),
-    // D24 amended: always the file's own mtime; any legacy `dateModified` key on
-    // disk is ignored (and removed on the next persist).
-    dateModified: file.stat.mtime,
-    // Only stamp dateRead when the frontmatter actually had a parseable value; an unparseable Read date
-    // stays absent (interpreted as "not yet read") rather than pinning to a 1970 fallback.
-    dateRead: parseOptionalDate(fm.dateRead),
-    quotes: [],
-    claims: [],
-    citations: [],
-    citedBy: [],
-    related: [],
-    customFields: {
-      ...(fm.customFields ?? {}),
-      projectId,
-      papersFolder,
-    },
-    source: fm.source ?? 'manual',
-    importedFrom: fm.importedFrom,
-  };
-}
-
-function templateDataFor(paper: Paper): TemplateData {
-  // 2.8.E — `authors` template placeholder is a comma-joined list of
-  // "<first> <last>" strings when first names exist, else last names only.
-  const joinedAuthors = paper.authorFirstNames
-    ? paper.authors
-        .map((last, i) => `${paper.authorFirstNames?.[i] ?? ''} ${last}`.trim())
-        .join(', ')
-    : paper.authors.join(', ');
-  return {
-    citekey: paper.citekey,
-    title: paper.title,
-    authors: joinedAuthors,
-    year: paper.year,
-    venue: paper.venue ?? '',
-    doi: paper.doi ?? '',
-    abstract: paper.abstract ?? '',
-    keywords: paper.keywords.join(', '),
-    status: paper.status,
-    priority: paper.priority,
-    dateAdded: isoDate(paper.dateAdded),
-  };
-}
-
-function isoDate(ts: number): string {
-  if (!Number.isFinite(ts)) return '';
-  return new Date(ts).toISOString();
-}
 
 /**
  * Shallow equality used by `syncFromFile` to decide whether a disk change is
@@ -1070,17 +764,6 @@ function papersEqual(a: Paper, b: Paper): boolean {
  * parallel array and is intentionally not part of the equality lattice so
  * a user editing just the last-name list does not flip `papersEqual`.
  */
-/**
- * 2.8.E frontmatter reader helper. YAML scalars can hand us strings,
- * numbers, booleans, or null. Anything else (rolls up as objects/arrays
- * after YAML's incomplete typing) we coerce to '' so the YAML stays
- * round-trippable without surprising object-stringification defaults.
- */
-function coerceFrontmatterScalar(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return '';
-}
 
 function authorsEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -1096,77 +779,3 @@ function keywordsEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
-/**
- * Replace (or insert) the `## Attached PDF` section in `body` so it links to
- * `pdfPath`. If `pdfPath` is `undefined`, the section is removed (preserving
- * any content that followed it). Matches the heading at the start of a line
- * so headings in quotes/code blocks are not accidentally rewritten.
- */
-function upsertAttachedPdfSection(body: string, pdfPath: string | undefined): string {
-  const lines = body.split('\n');
-  // Locate the existing `## Attached PDF` heading (case-insensitive, must be at line start).
-  const headingRe = /^##\s+Attached PDF\s*$/i;
-  const startIdx = lines.findIndex((l) => headingRe.test(l));
-  if (startIdx === -1) {
-    if (!pdfPath) return body; // Nothing to insert, nothing to remove.
-    const link = `[[${pdfPath}|View PDF]]`;
-    const append = `## Attached PDF\n\n${link}`;
-    return body.trimEnd().length === 0 ? `${append}\n` : `${body.trimEnd()}\n\n${append}\n`;
-  }
-  if (!pdfPath) {
-    // Remove the heading + its content up to the next `##` heading or end of body.
-    let endIdx = lines.length;
-    for (let i = startIdx + 1; i < lines.length; i += 1) {
-      if (/^##\s+/.test(lines[i] ?? '')) { endIdx = i; break; }
-    }
-    const before = lines.slice(0, startIdx).join('\n').replace(/\s+$/u, '');
-    const after = lines.slice(endIdx).join('\n').replace(/^\s+/u, '');
-    return before.length === 0 && after.length === 0 ? '' : `${before}\n\n${after}`.replace(/\n{3,}/g, '\n\n');
-  }
-  // Replace the section content with a single wikilink line.
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i += 1) {
-    if (/^##\s+/.test(lines[i] ?? '')) { endIdx = i; break; }
-  }
-  const before = lines.slice(0, startIdx).join('\n').replace(/\s+$/u, '');
-  const after = lines.slice(endIdx).join('\n').replace(/^\s+/u, '');
-  const link = `[[${pdfPath}|View PDF]]`;
-  const middle = `## Attached PDF\n\n${link}`;
-  const parts = [before, middle, after].filter((p) => p.length > 0);
-  return `${parts.join('\n\n')}\n`.replace(/\n{3,}/g, '\n\n');
-}
-
-function renderQuoteSection(quote: Quote): string {
-  const head = `> ${quote.text.replace(/\n/g, '\n> ')}`;
-  const meta: string[] = [];
-  if (quote.page) meta.push(`p. ${quote.page}`);
-  if (quote.section) meta.push(quote.section);
-  const metaLine = meta.length > 0 ? `\n-- ${meta.join(' \u00B7 ')}` : '';
-  const tagsLine = quote.tags.length > 0 ? `\n#tags: ${quote.tags.join(' ')}\n` : '\n';
-  const sourceLine = quote.source ? `\n-- source: ${quote.source}\n` : '\n';
-  return `${head}${metaLine}${tagsLine}${sourceLine}`;
-}
-
-/** Debounce window (ms) for vault `modify` events before a `syncFromFile`. */
-const SYNC_DEBOUNCE_MS = 750;
-
-/** The canonical `<papersFolder>/<citekey>.md` path for a paper, or undefined. */
-function canonicalPathOf(paper: Paper): string | undefined {
-  const folder = papersFolderOf(paper);
-  if (!folder) return undefined;
-  return normalizePath(`${folder}/${paper.citekey}.md`);
-}
-
-/** Fallback template if both settings.templates.paper and project settings are empty. */
-const DEFAULT_PAPER_TEMPLATE = `# {{title}}
-
-> Authors: {{authors}} ({{year}}). {{venue}}.
-
-## Summary
-
-## Key points
-
-## Quotes
-
-## Notes
-`;

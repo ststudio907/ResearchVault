@@ -29,7 +29,7 @@
 //
 // What this is NOT:
 //   - Persistent. On plugin reload the cache clears; that's the desired
-//     behaviour for a per-session lookup cache and matches `AIClient`'s
+//     behaviour for a per-session lookup cache and matches `CitationManager`'s
 //     in-process state pattern.
 //   - Thread-safe. JavaScript is single-threaded, so the only relevant
 //     safety concern is "does the `set()` that bumps the size past the cap

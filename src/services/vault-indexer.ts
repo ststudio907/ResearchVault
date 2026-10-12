@@ -7,32 +7,14 @@
 // time. Subscribes to the plugin's typed EventBus so the store stays fresh
 // as papers are imported, edited, or removed.
 //
-// Sprint 3 surface (this phase): `hydrate`, `searchPapers`, and incremental
-// `addToIndex` / `removeFromIndex`. The remaining stubs (graph, AI context
-// prep) stay as `notImplemented` until later sub-passes.
+// Public surface: `hydrate`, `searchPapers`, and incremental `addToIndex` /
+// `removeFromIndex`. The Sprint-3 stubs (graph, AI context prep, note-level
+// search) were removed in the 2026-10 cleanup — see `docs/REFACTOR_CONTEXT.md`.
 
 import { prepareFuzzySearch } from 'obsidian';
 import type { SearchResult } from 'obsidian';
-import type { Paper, LiteratureNote, ReadingStatus, Priority } from '../types';
+import type { Paper, ReadingStatus, Priority } from '../types';
 import type { ResearchVaultPlugin } from '../core/plugin';
-
-/** A chunk of paper text prepared for AI context. (Sprint 3 — Tier 3 follow-up) */
-export interface TextChunk {
-  paperId: string;
-  text: string;
-  page?: number;
-  tokenEstimate: number;
-}
-
-/** Node + edges for the citation graph. (Sprint 3 — Tier 3 follow-up) */
-export interface CitationGraph {
-  nodes: Array<{ id: string; title: string }>;
-  edges: Array<{
-    from: string;
-    to: string;
-    kind: 'cites' | 'extends' | 'contradicts' | 'related';
-  }>;
-}
 
 /** Filters surfaced in search UI. Kept in this file because only the indexer consumes them. */
 export interface SearchFilters {
@@ -177,45 +159,13 @@ export class VaultIndexer {
     return items.map((p) => p.paper);
   }
 
-  /** Stub — note-level search belongs to a future sprint once note bodies are indexed. */
-  searchNotes(_query: string): LiteratureNote[] {
-    throw this.notImplemented('searchNotes');
-  }
-
-  /** Stub — cross-vault mention scan is a follow-up to 3.2 (CitationManager). */
-  findUnlinkedMentions(_citekey: string): TFile[] {
-    throw this.notImplemented('findUnlinkedMentions');
-  }
-
-  // -------------------------------------------------------------------------
-  // Graph (Sprint 3 — Tier 3 follow-up)
-  // -------------------------------------------------------------------------
-
-  getCitationGraph(): CitationGraph {
-    throw this.notImplemented('getCitationGraph');
-  }
-  getRelatedPapers(_paperId: string, _depth?: number): string[] {
-    throw this.notImplemented('getRelatedPapers');
-  }
-
-  // -------------------------------------------------------------------------
-  // AI prep (Sprint 3 — Tier 3 follow-up)
-  // -------------------------------------------------------------------------
-
-  getChunksForPaper(_paperId: string): TextChunk[] {
-    throw this.notImplemented('getChunksForPaper');
-  }
-  getProjectContext(_projectId: string, _maxTokens?: number): string {
-    throw this.notImplemented('getProjectContext');
-  }
-
   // -------------------------------------------------------------------------
   // Index maintenance
   // -------------------------------------------------------------------------
 
   /**
    * Public for `PaperService` to call after it reads a paper file from disk
-   * and discovers drift from the cached `Paper`. Triggers a single reindex
+   * and discovers drift from the cached `Paper`. Triggers a single upsert
    * + indexUpdated event.
    */
   addToIndex(paper: Paper): void {
@@ -228,14 +178,6 @@ export class VaultIndexer {
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
   }
 
-  /** Public counterpart for file edits; used by `PaperService` on re-hydration. */
-  updateIndex(_file: TFile): void {
-    // We rely on event subscriptions for paper-level changes. File-level
-    // updates from outside the plugin are picked up the next time
-    // `PaperService` re-emits a paper event. Kept for API stability.
-    this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
-  }
-
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
@@ -243,12 +185,6 @@ export class VaultIndexer {
   private onPaperUpsert(paper: Paper): void {
     this.byId.set(paper.id, projectFor(paper));
     this.plugin.eventBus.emit('indexUpdated', { count: this.byId.size });
-  }
-
-  private notImplemented(method: string): Error {
-    return new Error(
-      `VaultIndexer.${method} is not implemented yet (Sprint 3 — see plans/plan.md §7 / §14).`,
-    );
   }
 }
 
@@ -383,9 +319,3 @@ function applyFilters(items: IndexedPaper[], filters: SearchFilters): IndexedPap
     return true;
   });
 }
-
-// Local re-import of `TFile` keeps the public API stable with the rest of
-// the service layer without forcing `TFile` to be referenced from above.
-// (We don't actually use it in the body, but the parameter is required by
-// the pre-existing public signature.)
-import type { TFile } from 'obsidian';

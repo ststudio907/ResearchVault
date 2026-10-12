@@ -2,8 +2,8 @@
 //
 // Manual paper import form. Collects the metadata that doesn't require a
 // network call or PDF parser, shows a live citekey preview, and submits to
-// `PaperService.createManual`. `createFromDoi` / Bibtex import remain
-// `notImplemented` per the Sprint 2 lean decision (see plans/plan.md §7).
+// `PaperService.createManual`. DOI and BibTeX import are not shipped in 1.0
+// (dead stubs removed in the 2026-10 cleanup — see `docs/REFACTOR_CONTEXT.md`).
 //
 // Per D28 (sub-pass 2.7.1), the PDF picker is purely an attachment source:
 // selecting a PDF never overrides or fabricates metadata, and the submit
