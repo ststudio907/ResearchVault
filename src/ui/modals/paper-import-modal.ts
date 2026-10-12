@@ -643,12 +643,12 @@ export class PaperImportModal extends Modal {
   private async performDoiLookup(): Promise<void> {
     const doi = this.form.doi.trim();
     if (!doi) {
-      new Notice('Researchvault: enter a doi to look up.');
+      new Notice('ResearchVault: enter a doi to look up.');
       return;
     }
 
     if (!this.isCitationLookupEnabled()) {
-      new Notice('Researchvault: citation lookup is not enabled in settings.');
+      new Notice('ResearchVault: citation lookup is not enabled in settings.');
       return;
     }
 
@@ -808,7 +808,7 @@ export class PaperImportModal extends Modal {
   private async submit(): Promise<void> {
     if (!this.validate()) return;
     if (!this.rv.projectManager.getProjectById(this.form.projectId)) {
-      new Notice('Researchvault: pick a project before saving a paper.');
+      new Notice('ResearchVault: pick a project before saving a paper.');
       return;
     }
 
@@ -890,7 +890,7 @@ export class PaperImportModal extends Modal {
     const pdfs = allFiles.filter((f) => f.extension === 'pdf');
 
     if (pdfs.length === 0) {
-      new Notice('Researchvault: no PDF files found in the vault.');
+      new Notice('ResearchVault: no PDF files found in the vault.');
       return null;
     }
 
@@ -915,7 +915,7 @@ export class PaperImportModal extends Modal {
   private async copyPdfIntoVault(file: File): Promise<string | null> {
     const project = this.rv.projectManager.getProjectById(this.form.projectId);
     if (!project) {
-      new Notice('Researchvault: pick a project first.');
+      new Notice('ResearchVault: pick a project first.');
       return null;
     }
 

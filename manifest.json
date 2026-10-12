@@ -4,7 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "1.6.6",
 	"description": "Turn your vault into a research operating system: manage projects, track papers, capture quotes, and synthesize across sources.",
-	"author": "ResearchVault contributors",
-	"authorUrl": "https://github.com/obsidianmd/ResearchVault",
+	"author": "ststudio907",
+	"authorUrl": "https://github.com/ststudio907/ResearchVault",
 	"isDesktopOnly": false
 }

@@ -83,7 +83,7 @@ export class CreateProjectModal extends BaseProjectModal {
             folders.length === 0
               ? 'No vault folders yet — type a path like `Projects/<name>`.'
               : `Try one of:\n- ${folders.slice(0, 12).join('\n- ')}`;
-          new Notice(hint, 6_000);
+          new Notice(`ResearchVault: ${hint}`, 6_000);
         }),
       );
 

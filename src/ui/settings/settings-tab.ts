@@ -2,12 +2,15 @@
 //
 // Settings UI for ResearchVault. Built on Obsidian's `PluginSettingTab` so the
 // layout and theme follow the host app without us re-inventing the chrome.
-// Sections, in order: General → Projects → AI → Templates.
+// Sections, in order: General → Projects → Citations → Zotero → Templates.
+// (An AI section existed while AI features were planned; it is hidden until
+// those features actually ship — the `settings.ai` schema stays so persisted
+// data survives.)
 //
 
-import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
+import { App, PluginSettingTab, Setting } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
-import { CITATION_STYLES, AI_PROVIDERS } from '../../types';
+import { CITATION_STYLES } from '../../types';
 import { ConfirmModal } from '../modals/confirm-modal';
 
 export class ResearchVaultSettingTab extends PluginSettingTab {
@@ -27,7 +30,6 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
     this.renderProjects(containerEl);
     this.renderCitations(containerEl);
     this.renderZotero(containerEl);
-    this.renderAI(containerEl);
     this.renderTemplates(containerEl);
   }
 
@@ -338,112 +340,6 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           await this.rv.saveSettings();
         });
       });
-  }
-
-  private renderAI(root: HTMLElement): void {
-    new Setting(root).setName("AI features").setHeading();
-
-    root.createEl('p', {
-      text:
-        'AI features send selected text (papers, quotes, or chat input) to the provider you configure below. ' +
-        'Features are disabled until both the toggles and an API key (if required) are set.',
-      cls: 'setting-item-description',
-    });
-
-    new Setting(root)
-      .setName('Provider')
-      .addDropdown((dropdown) => {
-        for (const provider of AI_PROVIDERS) dropdown.addOption(provider, provider);
-        dropdown.setValue(this.rv.settings.ai.provider);
-        dropdown.onChange(async (value) => {
-          this.rv.settings.ai.provider = value as typeof this.rv.settings.ai.provider;
-          await this.rv.saveSettings();
-        });
-      });
-
-    new Setting(root)
-      .setName('Model')
-      .addText((text) => {
-        text.setPlaceholder('Example model name');
-        text.setValue(this.rv.settings.ai.model);
-        text.onChange(async (value) => {
-          this.rv.settings.ai.model = value;
-          await this.rv.saveSettings();
-        });
-      });
-
-    new Setting(root)
-      .setName('API key')
-      .setDesc('Stored locally in this plugin settings file. Never sent anywhere except the provider you chose.')
-      .addText((text) => {
-        text.inputEl.type = 'password';
-        text.setPlaceholder('Sk-…');
-        text.setValue(this.rv.settings.ai.apiKey ?? '');
-        text.onChange(async (value) => {
-          this.rv.settings.ai.apiKey = value || undefined;
-          await this.rv.saveSettings();
-        });
-      });
-
-    new Setting(root)
-      .setName('Maximum tokens per request')
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text.setValue(String(this.rv.settings.ai.maxTokens));
-        text.onChange(async (value) => {
-          const n = Number(value);
-          if (Number.isFinite(n) && n > 0) {
-            this.rv.settings.ai.maxTokens = n;
-            await this.rv.saveSettings();
-          }
-        });
-      });
-
-    new Setting(root)
-      .setName('Temperature')
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text.setValue(String(this.rv.settings.ai.temperature));
-        text.onChange(async (value) => {
-          const n = Number(value);
-          if (Number.isFinite(n) && n >= 0 && n <= 2) {
-            this.rv.settings.ai.temperature = n;
-            await this.rv.saveSettings();
-          }
-        });
-      });
-
-    new Setting(root).setName("Feature toggles").setHeading();
-
-    const toggles: Array<[keyof typeof this.rv.settings.ai & `enable${string}`, string]> = [
-      ['enableSummarization', 'Enable summarization'],
-      ['enableChat', 'Enable chat with vault context'],
-      ['enableSuggestions', 'Enable suggested connections'],
-    ];
-    for (const [key, label] of toggles) {
-      new Setting(root)
-        .setName(label)
-        .addToggle((toggle) => {
-          toggle.setValue(Boolean(this.rv.settings.ai[key]));
-          toggle.onChange(async (value) => {
-            // Cast through `unknown` to keep the union narrow at the array level.
-            (this.rv.settings.ai as unknown as Record<string, boolean>)[key] = value;
-            await this.rv.saveSettings();
-          });
-        });
-    }
-
-    new Setting(root)
-      .setName('Clear saved key')
-      .setDesc('Wipe the API key from settings without changing other fields.')
-      .addButton((btn) =>
-        btn.setButtonText('Clear').setWarning().onClick(async () => {
-          this.rv.settings.ai.apiKey = undefined;
-          await this.rv.saveSettings();
-          new Notice('Researchvault: API key cleared.');
-          this.display();
-        }),
-      );
   }
 
   // -------------------------------------------------------------------------

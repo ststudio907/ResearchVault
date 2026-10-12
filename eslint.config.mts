@@ -35,4 +35,16 @@ export default tseslint.config(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		rules: {
+			// User-facing notices are prefixed with the plugin's brand name
+			// ("ResearchVault: ..."), whose interior capital conflicts with
+			// sentence case. Skip strings that start with the prefix; the
+			// remainder of the sentence is hand-kept sentence case.
+			'obsidianmd/ui/sentence-case': [
+				'error',
+				{ ignoreRegex: ['^ResearchVault:'] },
+			],
+		},
+	},
 );

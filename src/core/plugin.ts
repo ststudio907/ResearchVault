@@ -70,7 +70,7 @@ export class ResearchVaultPlugin extends Plugin {
   /** Open the manual paper-import modal. Routes to the active project by default. */
   openAddPaperModal(): void {
     if (this.projectManager.getAllProjects().length === 0) {
-      new Notice('Researchvault: create a project before adding a paper.');
+      new Notice('ResearchVault: create a project before adding a paper.');
       return;
     }
     new PaperImportModal(this.app, this).open();
@@ -81,7 +81,7 @@ export class ResearchVaultPlugin extends Plugin {
     options?: { selectedText?: string; defaultPaperId?: string; source?: QuoteSource },
   ): void {
     if (this.projectManager.getAllProjects().length === 0) {
-      new Notice('Researchvault: create a project before capturing a quote.');
+      new Notice('ResearchVault: create a project before capturing a quote.');
       return;
     }
     new QuoteCaptureModal(this.app, this, options).open();
@@ -220,7 +220,7 @@ export class ResearchVaultPlugin extends Plugin {
       editorCallback: (editor) => {
         const selection = editor.getSelection();
         if (!selection || !selection.trim()) {
-          new Notice('Researchvault: select text in the editor first, then run "capture quote".');
+          new Notice('ResearchVault: select text in the editor first, then run "capture quote".');
           return;
         }
         this.openQuoteCaptureModal({ selectedText: selection, source: 'editor' });

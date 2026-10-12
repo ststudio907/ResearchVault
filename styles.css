@@ -3,6 +3,16 @@
    so the plugin participates cleanly in dark / light / custom themes.
 */
 
+/* Modal sizing shared by all ResearchVault modals.
+   Obsidian's default `--modal-width` (~500 px) is a touch narrow for the
+   paper-import form (PDF drop zone, author list, multiple text fields), so
+   we go ~25 % wider but never wider than the window itself. Applied via
+   `applyStandardModalWidth` in `src/ui/modals/modal-width.ts`. */
+.researchvault-modal {
+  width: 640px;
+  max-width: 90vw;
+}
+
 .rv-project-list {
   display: flex;
   flex-direction: column;

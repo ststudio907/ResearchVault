@@ -208,7 +208,7 @@ export class QuoteCaptureModal extends Modal {
       };
 
       await this.plugin.paperService.addQuote(this.selectedPaperId, input);
-      new Notice(`Researchvault: quote added (${this.source}).`);
+      new Notice(`ResearchVault: quote added (${this.source}).`);
       this.close();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

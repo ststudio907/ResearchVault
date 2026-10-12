@@ -722,7 +722,7 @@ export class ProjectsSidebarView extends ItemView {
     try {
       const collection = await local.getSelectedCollection();
       if (!collection) {
-        new Notice('Researchvault: select a collection in Zotero first, then push again.');
+        new Notice('ResearchVault: select a collection in Zotero first, then push again.');
         return;
       }
       const item = paperToConnectorItem(paper);
