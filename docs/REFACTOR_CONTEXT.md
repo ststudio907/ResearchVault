@@ -122,3 +122,27 @@ From `git config` + remote (looked valid, used without re-asking):
 
 **Verification**: `tsc --noEmit`, `npm run lint`, `npm run build` all green. Bundle 105.6 KB → 103.9 KB.
 
+## 12. Phase 4 changes (detail) — release hygiene
+
+**Manifest & legal**
+- `manifest.json`: `author` → `ststudio907`, `authorUrl` → the ststudio907 GitHub repo.
+- New root `LICENSE` (clean 0-BSD text with corrected copyright). Deleted `docs/LICENSE` (stale copyright line) and `docs/README.md` (leftover sample-plugin readme).
+
+**README rewrite** — sprint-chronicle replaced with a user-facing doc: shipped-features list (projects, paper tracking w/ DOI + CSL-JSON import, PDF attach, quote capture, sidebar, templates), install + getting-started steps, opt-in privacy disclosures for Crossref/OpenAlex, Zotero sync, and Zotero local push, plus dev commands.
+
+**Settings tab** — AI section hidden until AI features ship (`renderAI` deleted; `settings.ai` schema and `AI_PROVIDERS`/CSL exports in `types/index.ts` kept so persisted data and future work survive). File 477 → ~345 lines.
+
+**Notice prefix standardization** — all `Researchvault:` → `ResearchVault:`, plus the previously unprefixed folder-suggestion notice. The `obsidianmd/ui/sentence-case` rule rewrites the interior capital, so `eslint.config.mts` now passes `{ ignoreRegex: ['^ResearchVault:'] }` for exactly the brand-prefix strings (remainder of each sentence stays sentence case).
+
+**Modal width** — inline `style.width`/`style.maxWidth` assignments replaced by the `.researchvault-modal` class in `styles.css` (width 640px / max-width 90vw, user-overridable via snippet); `modal-width.ts` now only calls `addClass`.
+
+**Tracked clutter** — `git rm -r .ag-scripts/` (17 one-off patching scripts, superseded by committed results).
+
+**Bundle analysis** — production builds emit `esbuild-metafile.json` (gitignored) plus a per-module size report; `npm run analyze` is an alias for `build`. Bundle 103.9 KB → 101.6 KB.
+
+**Verified already done in earlier phases** (Phase 4 checklist items): all network traffic already uses `requestUrl` — no `window.fetch` calls remain in `src/`. `vault.process` + debounced index sync + `sync-note-noise` fix shipped in Phases 1–2.
+
+**Open items carried to Phase 5/6**
+- Phase 5: Vitest for pure utils — `papers/paper-file-format.ts` first.
+- Phase 6: `versions.json` mapping for the pre-release version (needs the 0.9.0 mapping), GitHub release, live smoke tests in fresh + legacy vaults (deploy with `npm run deploy`).
+
