@@ -375,7 +375,7 @@ export class ProjectManager {
   ): Paper {
     const stem = file.basename;
     return {
-      id: stem,
+      id: `${projectId}/${stem}`,
       citekey: stem,
       title: stem,
       authors: [],

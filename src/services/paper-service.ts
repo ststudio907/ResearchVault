@@ -73,12 +73,14 @@ export interface PaperManualInput {
   citekey?: string;
 }
 
-/** Aggregate access surface: maps makes O(1) lookup by either id or citekey cheap. */
+/**
+ * Aggregate access surface: O(1) lookup by id (`${projectId}/${citekey}`) or
+ * canonical path. Citekeys are unique within a project but may repeat across
+ * projects, so citekey lookups scan `byId` (cheap at realistic sizes).
+ */
 export class PaperService {
-  /** Active in-memory record of the on-disk paper files. Recomputed by `hydrate()`. */
+  /** Active in-memory record of the on-disk paper files, keyed by composite id. Recomputed by `hydrate()`. */
   private byId = new Map<string, Paper>();
-  /** Reverse index: lower-cased citekey -> id, kept consistent with `byId` on every mutation. */
-  private citekeyToId = new Map<string, string>();
   /**
    * Reverse index: lower-cased canonical note path (`<papersFolder>/<citekey>.md`) -> id.
    * Lets vault `rename`/`delete` handlers find a paper in O(1) even after the
@@ -122,7 +124,6 @@ export class PaperService {
    */
   async hydrate(): Promise<void> {
     this.byId.clear();
-    this.citekeyToId.clear();
     this.pathToId.clear();
 
     for (const project of this.plugin.settings.projects) {
@@ -161,9 +162,19 @@ export class PaperService {
     return this.byId.get(id);
   }
 
-  getByCitekey(citekey: string): Paper | undefined {
-    const id = this.citekeyToId.get(citekey.toLowerCase());
-    return id ? this.byId.get(id) : undefined;
+  /**
+   * Look up a paper by citekey. Citekeys are unique within a project but may
+   * repeat across projects, so pass `projectId` to disambiguate; without it
+   * the first matching paper (arbitrary project) is returned.
+   */
+  getByCitekey(citekey: string, projectId?: string): Paper | undefined {
+    const key = citekey.toLowerCase();
+    for (const paper of this.byId.values()) {
+      if (paper.citekey.toLowerCase() !== key) continue;
+      if (projectId !== undefined && paper.customFields['projectId'] !== projectId) continue;
+      return paper;
+    }
+    return undefined;
   }
 
   getInProject(projectId: string): Paper[] {
@@ -181,9 +192,11 @@ export class PaperService {
    * attachment, not a source of truth for metadata), writes the markdown
    * file with rendered body, and emits `paperImported`.
    *
-   * The `id` field of the resulting paper is the citekey — the on-disk
-   * file is canonically identified by its basename. This keeps the
-   * citation vocabulary the same in markdown links and internal lookups.
+   * In memory the paper's `id` is the composite `${projectId}/${citekey}`:
+   * citekeys are unique per project (the on-disk basename) but the same
+   * paper — even the same citekey — may be added to several projects, and
+   * only the composite keeps the `byId` index unambiguous. The disk
+   * frontmatter `id` stays the plain citekey for human-friendly YAML.
    */
   async createManual(input: PaperManualInput, projectId: string): Promise<Paper> {
     const project = this.projectManager.getProjectById(projectId);
@@ -201,7 +214,7 @@ export class PaperService {
     const papersFolder = this.projectManager.getProjectPapersFolder(projectId);
     const pdfsFolder = this.projectManager.getProjectPdfsFolder(projectId);
 
-    const citekey = this.resolveCitekey(input, papersFolder);
+    const citekey = this.resolveCitekey(input, papersFolder, projectId);
     const filePath = normalizePath(`${papersFolder}/${citekey}.md`);
 
     if (this.plugin.app.vault.getAbstractFileByPath(filePath)) {
@@ -234,7 +247,7 @@ export class PaperService {
 
     const now = Date.now();
     const paper: Paper = {
-      id: citekey,
+      id: `${projectId}/${citekey}`,
       citekey,
       title: input.title.trim(),
       authors: input.authors.map(normaliseAuthorName),
@@ -379,9 +392,7 @@ export class PaperService {
   // -------------------------------------------------------------------------
 
   async getNoteContent(paperIdOrCitekey: string): Promise<string> {
-    const paper =
-      this.byId.get(paperIdOrCitekey) ??
-      this.byId.get(this.citekeyToId.get(paperIdOrCitekey.toLowerCase()) ?? '');
+    const paper = this.byId.get(paperIdOrCitekey) ?? this.getByCitekey(paperIdOrCitekey);
     if (!paper) throw new Error(`PaperService.getNoteContent: paper "${paperIdOrCitekey}" not found.`);
     const file = this.findPaperFile(paper);
     if (!file) return '';
@@ -458,23 +469,21 @@ export class PaperService {
   }
 
   /**
-   * Drop a paper from the in-memory index by its `paper.id`. Keeps all three
-   * reverse indexes (citekey, path) consistent.
+   * Drop a paper from the in-memory index by its `paper.id`. Keeps the path
+   * reverse index consistent.
    */
   dropFromIndex(paperId: string): void {
     const paper = this.byId.get(paperId);
     if (!paper) return;
     this.byId.delete(paperId);
-    this.citekeyToId.delete(paper.citekey.toLowerCase());
     const path = canonicalPathOf(paper);
     if (path) this.pathToId.delete(path.toLowerCase());
   }
 
-  /** Insert or replace a paper in `byId` and every reverse index. */
+  /** Insert or replace a paper in `byId` and the path reverse index. */
   private indexPaper(paper: Paper): void {
     if (this.byId.has(paper.id)) this.dropFromIndex(paper.id);
     this.byId.set(paper.id, paper);
-    this.citekeyToId.set(paper.citekey.toLowerCase(), paper.id);
     const path = canonicalPathOf(paper);
     if (path) this.pathToId.set(path.toLowerCase(), paper.id);
   }
@@ -542,13 +551,16 @@ export class PaperService {
     if (byPath) return byPath;
     const stem = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? '';
     if (!stem) return undefined;
-    const id = this.citekeyToId.get(stem.toLowerCase());
-    if (!id) return undefined;
-    // Only accept the citekey fallback when the paper actually lived in this folder.
-    const paper = this.byId.get(id);
-    const folder = paper ? papersFolderOf(paper) : undefined;
+    // Fallback: find the indexed paper whose citekey AND folder match.
+    // Citekeys can repeat across projects, so the folder guard is required.
+    const stemLower = stem.toLowerCase();
     const parent = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
-    return folder === parent ? id : undefined;
+    for (const paper of this.byId.values()) {
+      if (paper.citekey.toLowerCase() === stemLower && papersFolderOf(paper) === parent) {
+        return paper.id;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -638,11 +650,14 @@ export class PaperService {
   }
 
   /**
-   * Pick a unique citekey for an incoming paper. If the user supplied one
-   * we honour it as long as it doesn't collide; otherwise we derive one
-   * from author/year/title and append `-2`, `-3`, … on collisions.
+   * Pick a unique citekey for an incoming paper. "Unique" is scoped to the
+   * TARGET project: a citekey already used in another project is fine — the
+   * same paper may live in several projects. If the user supplied a citekey
+   * we honour it as long as it doesn't collide within the project; otherwise
+   * we derive one from author/year/title and append `-2`, `-3`, … on
+   * collisions.
    */
-  private resolveCitekey(input: PaperManualInput, papersFolder: string): string {
+  private resolveCitekey(input: PaperManualInput, papersFolder: string, projectId: string): string {
     const folder = this.plugin.app.vault.getAbstractFileByPath(papersFolder);
     if (!(folder instanceof TFolder)) {
       throw new Error('PaperService.createManual: papers folder disappeared mid-flight.');
@@ -651,7 +666,7 @@ export class PaperService {
     const isTaken = (candidate: string): boolean => {
       const path = normalizePath(`${papersFolder}/${candidate}.md`);
       if (this.plugin.app.vault.getAbstractFileByPath(path)) return true;
-      return this.citekeyToId.has(candidate.toLowerCase());
+      return this.getByCitekey(candidate, projectId) !== undefined;
     };
 
     if (input.citekey && input.citekey.trim()) {

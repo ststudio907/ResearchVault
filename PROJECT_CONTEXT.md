@@ -52,7 +52,7 @@ See `/src/types/` for full interfaces. Key types:
 - Settings include: templates, citationStyle, aiProvider, customFields
 
 **Paper:**
-- citekey (unique), title, authors[], year, venue, doi, pdfPath
+- citekey (unique within its project), title, authors[], year, venue, doi, pdfPath
 - status: 'unread' | 'queued' | 'skimming' | 'reading' | 'annotating' | 'summarized' | 'synthesized' | 'archived'
 - priority: 'low' | 'medium' | 'high' | 'critical'
 - quotes[], claims[], citations[], related[]

@@ -557,8 +557,10 @@ export class PaperImportModal extends Modal {
       return slugify(this.form.explicitCitekey) || null;
     }
 
+    // Scoped to the selected project: the same citekey may be reused in other
+    // projects, so only an in-project collision earns a `-2` suffix.
     const isTaken = (candidate: string): boolean =>
-      this.rv.paperService.getByCitekey(candidate) !== undefined;
+      this.rv.paperService.getByCitekey(candidate, this.form.projectId) !== undefined;
     return generateUniqueCitekey(
       { lastName: baseAuthor, year, title: baseTitle },
       isTaken,

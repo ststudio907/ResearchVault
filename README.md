@@ -5,7 +5,7 @@ An Obsidian plugin that turns your vault into a **research operating system**: m
 ## Features
 
 - **Projects** — Create, switch, and delete research projects. Each project is a folder (with `papers`, `notes`, `literature`, and `pdfs` subfolders) whose contents are filtered into the sidebar view. Exactly one project is active at a time.
-- **Paper tracking** — Add papers manually, by pasting CSL-JSON (e.g. from Zotero or a DOI resolver), or by DOI through the built-in citation lookup (Crossref and OpenAlex). Papers are stored as Markdown files with structured frontmatter: authors, year, DOI, citekey, reading status, priority, and bibliography.
+- **Paper tracking** — Add papers manually, by pasting CSL-JSON (e.g. from Zotero or a DOI resolver), or by DOI through the built-in citation lookup (Crossref and OpenAlex). Papers are stored as Markdown files with structured frontmatter: authors, year, DOI, citekey, reading status, priority, and bibliography. Citekeys only need to be unique within a project, so the same paper can be added to multiple projects under the same citekey.
 - **PDF attachment** — Link a PDF from your vault to a paper; the plugin copies it into the project's `pdfs/` folder and keeps the paper note and local copy in sync.
 - **Quote capture** — Select text in the editor and run **Capture quote** to append it to a paper's note as a blockquote quote card with tags.
 - **Projects sidebar** — A dedicated view lists your projects and papers, filters by status/priority, and offers fuzzy search over paper titles, authors, and citekeys.

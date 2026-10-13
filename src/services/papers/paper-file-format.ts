@@ -27,6 +27,11 @@ export const DEFAULT_PAPER_TEMPLATE = `# {{title}}
 
 /** Keys we promise to round-trip via frontmatter. */
 export type PaperFrontmatter = {
+  /**
+   * On disk the id is simply the citekey — the note's basename is canonical.
+   * (In memory, `Paper.id` is the project-scoped composite
+   * `${projectId}/${citekey}`; it never round-trips through YAML.)
+   */
   id: string;
   citekey: string;
   title: string;
@@ -96,7 +101,9 @@ export function trimOrUndefined(value: string | undefined | null): string | unde
 export function toFrontmatter(paper: Paper): PaperFrontmatter {
   // Dates: epoch ms on the in-memory `Paper`, ISO date+time string on disk (D24).
   return {
-    id: paper.id,
+    // Disk id stays the plain citekey so notes stay byte-stable; the composite
+    // in-memory id (`${projectId}/${citekey}`) is derived on read.
+    id: paper.citekey,
     citekey: paper.citekey,
     title: paper.title,
     authors: paper.authors,
@@ -128,7 +135,12 @@ export function frontmatterToPaper(
   file: TFile,
 ): Paper {
   const citekey = String(fm.citekey ?? file.basename);
-  const id = String(fm.id ?? citekey);
+  // In-memory identity is the project-scoped composite, so the same citekey
+  // (i.e. the same paper) can live in several projects without one entry
+  // clobbering the other in `PaperService.byId`. The disk `id` field (legacy
+  // format: the citekey) is deliberately ignored — only the basename and the
+  // owning project determine identity.
+  const id = `${projectId}/${citekey}`;
   const papersFolder = file.parent?.path ?? '';
   // Parse an optional ISO/epoch date. Returns `undefined` when the source is null/empty/unparseable,
   // never pinning `dateRead` to a 1970 fallback that the sidebar would render as a real timestamp.

@@ -82,6 +82,11 @@ describe('toFrontmatter', () => {
     expect(fm.dateModified).toBeUndefined();
   });
 
+  it('writes the plain citekey as the disk id, not the composite in-memory id', () => {
+    const fm = toFrontmatter(makePaper({ id: 'proj-9/smith_2023_test' }));
+    expect(fm.id).toBe('smith_2023_test');
+  });
+
   it('omits dateRead when the paper was not read', () => {
     expect(toFrontmatter(makePaper()).dateRead).toBeUndefined();
   });
@@ -105,13 +110,21 @@ describe('frontmatterToPaper', () => {
   it('reads the modern frontmatter shape', () => {
     const paper = frontmatterToPaper(fm, 'proj-1', makeTFile());
     expect(paper.citekey).toBe('vaswani_2017_attention');
-    expect(paper.id).toBe('vaswani_2017_attention');
+    expect(paper.id).toBe('proj-1/vaswani_2017_attention');
     expect(paper.authors).toEqual(['Vaswani', 'Shazeer']);
     expect(paper.authorFirstNames).toEqual(['Ashish', 'Noam']);
     expect(paper.status).toBe('reading');
     expect(paper.priority).toBe('high');
     expect(paper.keywords).toEqual(['transformers']);
     expect(paper.source).toBe('doi');
+  });
+
+  it('ignores the legacy disk id and derives the project-scoped composite id', () => {
+    // Disk `id` values are plain citekeys from the pre-1.0 format; identity is
+    // recomputed from project + citekey so the same citekey can live in two
+    // projects without colliding in PaperService.byId.
+    const paper = frontmatterToPaper({ ...fm, id: 'other-project-copy' }, 'proj-9', makeTFile());
+    expect(paper.id).toBe('proj-9/vaswani_2017_attention');
   });
 
   it('stamps projectId and papersFolder into customFields', () => {
@@ -209,7 +222,10 @@ describe('frontmatter round-trip', () => {
     const file = makeTFile({ mtime: original.dateModified });
     const restored = frontmatterToPaper(fm, 'proj-new', file);
 
-    expect(restored.id).toBe(original.id);
+    // Disk id is the plain citekey; the restored in-memory id is the composite
+    // of the caller's project and that citekey.
+    expect(fm.id).toBe(original.citekey);
+    expect(restored.id).toBe(`proj-new/${original.citekey}`);
     expect(restored.citekey).toBe(original.citekey);
     expect(restored.title).toBe(original.title);
     expect(restored.authors).toEqual(original.authors);
