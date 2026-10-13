@@ -146,3 +146,45 @@ From `git config` + remote (looked valid, used without re-asking):
 - Phase 5: Vitest for pure utils — `papers/paper-file-format.ts` first.
 - Phase 6: `versions.json` mapping for the pre-release version (needs the 0.9.0 mapping), GitHub release, live smoke tests in fresh + legacy vaults (deploy with `npm run deploy`).
 
+
+## 13. Phase 5 changes (detail) — test infrastructure (commit `aafa58f`)
+
+- **vitest** installed at `^3` (v3.2.7; `^4` ERESOLVE-conflicts with the
+  pinned `@types/node`). No config file needed — defaults resolve
+  `tests/**/*.test.ts` against pathless pure modules. Scripts: `npm test`
+  (`vitest run`), `npm run test:watch`.
+- `eslint.config.mts` `projectService.allowDefaultProject` extended with
+  `tests/*.ts` so the obsidianmd rules typecheck the suite (tsconfig stays
+  scoped to `src/`; vitest+esbuild don't need tsc for tests).
+- **53 tests, 4 files** targeting pure modules (no obsidian runtime imports):
+  - `tests/paper-file-format.test.ts` (23) — highest-risk surface first.
+    Frontmatter ⇄ `Paper` round-trip, legacy author-object migration,
+    non-scalar YAML coercion, status/priority label migration, D24-amendment
+    `dateModified`-from-mtime, `projectId`/`papersFolder` re-stamping,
+    `templateDataFor` ↔ `DEFAULT_PAPER_TEMPLATE` key parity,
+    `upsertAttachedPdfSection` edge cases (empty body, trailing section,
+    section-only body), `renderQuoteSection` formatting.
+  - `tests/format-date.test.ts` (11) — TZ-stable via `new Date(y,m,d,…)`
+    local-component fixtures.
+  - `tests/citekey.test.ts` (12), `tests/template.test.ts` (7).
+- **REAL BUG CAUGHT BY THE TESTS**: `Date.parse('2026-07-11 | 16:55')` →
+  `NaN` on modern V8, contradicting the stale 2.8.C comment claiming the
+  local-tz frontmatter format parses "in every evergreen browser / Node".
+  Consequence in production: every paper note written since 2.8.C read back
+  `dateAdded` as the file's *ctime* (silent, plausible-looking drift — this
+  is why it survived) and dropped `dateRead` entirely. Fixed in
+  `format-date.ts`: `toDate` now matches the canonical shape explicitly
+  (`LOCAL_TZ_RE`) before the generic `Date` parse; the stale comment was
+  corrected. This alone justifies the test phase.
+- **Doc/behavior mismatch pinned, not fixed (needs product decision)**:
+  `renderTemplate`'s header comment claims unknown `{{keys}}` are left
+  as-is; the implementation (and the original inline code) blanks them.
+  Tests pin the implemented behavior and flag the discrepancy in a comment.
+- Gate green: `vitest run` 53/53, `tsc --noEmit`, `eslint .`,
+  `npm run build` all pass after the fix.
+
+### Phase 6 remaining (release prep)
+- Set `manifest.json` version 0.9.0 + `versions.json` mapping, GitHub release
+  tag match, release assets (`main.js`, `manifest.json`, `styles.css`).
+- Live smoke tests in a fresh vault and a legacy vault via `npm run deploy`.
+
