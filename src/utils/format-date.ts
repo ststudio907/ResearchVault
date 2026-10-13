@@ -49,6 +49,9 @@ export function formatPaperDate(
   return `${base}, ${hh}:${mm}`;
 }
 
+/** Canonical local-tz frontmatter shape written by `toLocalDateTime` (2.8.C). */
+const LOCAL_TZ_RE = /^(\d{4})-(\d{2})-(\d{2}) \| (\d{2}):(\d{2})$/;
+
 /** Convert a string / number / Date / null / undefined into a `Date` (or `null` if unparseable). */
 function toDate(input: string | number | Date | null | undefined): Date | null {
   if (input == null) return null;
@@ -57,11 +60,21 @@ function toDate(input: string | number | Date | null | undefined): Date | null {
     const d = new Date(input);
     return Number.isNaN(d.getTime()) ? null : d;
   }
-  // String path. Empty string -> null. Otherwise let `Date` parse it.
-  // (If TS still complains about the `string` cast later, ignore — the union
-  // narrows to `string` here so it's harmless.)
+  // String path. Empty string -> null.
   if (typeof input !== 'string' || input.trim() === '') return null;
-  const d = new Date(input);
+  const trimmed = input.trim();
+  // Explicitly handle our own canonical frontmatter format (`YYYY-MM-DD |
+  // HH:MM`, written by `toLocalDateTime`). `Date.parse` does NOT reliably
+  // parse the pipe-delimited form (NaN on modern V8 — caught by the Phase 5
+  // tests), so relying on the generic parse would silently corrupt
+  // `dateAdded` (falls back to file ctime) and drop `dateRead` on read.
+  const localMatch = LOCAL_TZ_RE.exec(trimmed);
+  if (localMatch) {
+    const [, y, mo, d, h, mi] = localMatch;
+    const parsed = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const d = new Date(trimmed);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -88,9 +101,10 @@ export function toIsoDateTime(input: string | number | Date | null | undefined):
  * at the YAML boundary so the user sees "year-month-day | time of day"
  * instead of an opaque ISO-with-ms-and-Z string.
  *
- * Round-trip safety: `Date.parse('2026-07-11 | 16:57')` parses correctly in
- * every evergreen browser / Node, and existing paper notes that already
- * carry the old format keep their data on next write.
+ * Round-trip safety: the reader `toDate` parses this exact shape explicitly
+ * (`LOCAL_TZ_RE`) — `Date.parse` silently returns NaN for the pipe form on
+ * modern V8. Existing paper notes that already carry the old ISO format
+ * keep their data on the next write.
  */
 export function toLocalDateTime(input: string | number | Date | null | undefined): string {
   const d = toDate(input);
