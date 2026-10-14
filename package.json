@@ -1,6 +1,6 @@
 {
 	"name": "researchvault",
-	"version": "1.0.0",
+	"version": "0.9.0",
 	"description": "Obsidian plugin: turn your vault into a research operating system (projects, papers, quotes, AI synthesis).",
 	"main": "main.js",
 	"type": "module",
