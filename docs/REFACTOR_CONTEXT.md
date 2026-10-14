@@ -2,7 +2,8 @@
 
 > **Purpose.** Hand-off document for continuing the release-prep refactor.
 > Read this first before touching anything; update it after every phase,
-> commit, or decision change. Written 2026-10-08 (updated after Phases 1–2).
+> commit, or decision change. Written 2026-10-08 (updated 2026-10-14: Phases 1–5,
+> shared PDF library D34 `01f4726`, release `0.9.0` committed+tagged `2198314`).
 
 ---
 
@@ -63,10 +64,11 @@ From `git config` + remote (looked valid, used without re-asking):
 |-------|-------|--------|
 | 1 | Correctness (above bugs) | ✅ done — commit "cleanup phase 1" |
 | 2 | fuse.js → `prepareFuzzySearch` | ✅ done; bundle 134.4 → 105.6 KB |
-| 3 | Split `paper-service.ts` (~1160 lines), `paper-import-modal.ts`, sidebar, `settings-tab.ts` via `git mv` + targeted edits; delete dead `notImplemented` stubs (27 total across services) | ⬜ TODO |
-| 4 | Release hygiene: fix manifest author/authorUrl (see §2), move LICENSE to root + fix copyright line, rewrite README (drop "Sprint 1" copy, add privacy/network section, features from 5.3/2.9 docs), hide AI settings + stubs, providers use `requestUrl` not `window.fetch`, standardize Notice prefixes ("ResearchVault:"), replace inline `modalEl.style.width` with a CSS class, `git rm` tracked clutter (`.ag-scripts/`, `PROJECT_CONTEXT.md`, `docs/ResearchVault Living Document.md`), add metafile size report to build | ⬜ TODO |
-| 5 | Vitest for pure utils (`citekey`, `frontmatter`, `template`, `format-date`, `uuid`); CI test step | ⬜ TODO |
-| 6 | Version → 0.9.0 (`manifest.json` + `versions.json`), release via `release.yml`, BRAT beta notes, then PR to `obsidianmd/obsidian-releases` for 1.0.0 | ⬜ TODO |
+| 3 | Split `paper-service.ts` (~1160 lines), `paper-import-modal.ts`, sidebar, `settings-tab.ts` via `git mv` + targeted edits; delete dead `notImplemented` stubs (27 total across services) | ✅ done — `b4a0028` |
+| 4 | Release hygiene: fix manifest author/authorUrl (see §2), move LICENSE to root + fix copyright line, rewrite README (drop "Sprint 1" copy, add privacy/network section, features from 5.3/2.9 docs), hide AI settings + stubs, providers use `requestUrl` not `window.fetch`, standardize Notice prefixes ("ResearchVault:"), replace inline `modalEl.style.width` with a CSS class, `git rm` tracked clutter (`.ag-scripts/`, `PROJECT_CONTEXT.md`, `docs/ResearchVault Living Document.md`), add metafile size report to build | ✅ done — `4564c4c` |
+| 5 | Vitest for pure utils (`citekey`, `frontmatter`, `template`, `format-date`, `uuid`); CI test step | ✅ done — `aafa58f` (+ `0c13cd4` docs). 64 tests after D34 suite. |
+| 5.5 | Per-project citekeys fix (`554c242`) + shared vault-level PDF library (D34, `01f4726`) | ✅ done; smoke-tested in deploy vault |
+| 6 | Version → 0.9.0 (`manifest.json` + `versions.json`), release via `release.yml`, BRAT beta notes, then PR to `obsidianmd/obsidian-releases` for 1.0.0 | 🔶 in progress — `0.9.0` committed+tagged+pushed `2198314`; GitHub Release + BRAT + PR remain |
 
 
 ## 7. Phase 1 changes (detail)
@@ -99,14 +101,14 @@ From `git config` + remote (looked valid, used without re-asking):
 
 ## 9. Verification
 
-- `npx tsc -noEmit`, `npm run lint`, `npm run build` all green after each phase.
-- Not yet verified live in a vault; **Phase 6** smoke list: fresh vault + existing vault with legacy `dateModified` keys; edit a note body (no writes, index updates within ~1 s); rename/delete of a note; search weighting sanity.
+- `npx tsc -noEmit`, `npm run lint`, `npm run build`, `npx vitest run` (64/64) all green after each phase.
+- Verified live in the deploy vault (2026-10-14): same-paper cross-project PDF linking, drag-drop single-copy into the library, project skeleton without `pdfs/`, legacy `pdfs/` links still resolve.
 
 ## 10. Open items / watch list
 
 - `syncFromFile` still uses `cachedRead` (not metadataCache frontmatter) — deliberate: the cache may lag the write; fine.
 - Confirm in Phase 4 which network paths still use `window.fetch` (citation providers, Zotero) and route them through `requestUrl` (Zotero local connector already does since commit `d0f37d9`).
-- `versions.json` currently lists 1.0.0 — needs the 0.9.0 mapping in Phase 6.
+- `versions.json` lists `0.9.0` → `1.6.6` (updated `2198314`); add `1.0.0` when it ships.
 
 ## 11. Phase 3 changes (detail)
 
@@ -186,7 +188,17 @@ From `git config` + remote (looked valid, used without re-asking):
   `npm run build` all pass after the fix.
 
 ### Phase 6 remaining (release prep)
-- Set `manifest.json` version 0.9.0 + `versions.json` mapping, GitHub release
-  tag match, release assets (`main.js`, `manifest.json`, `styles.css`).
-- Live smoke tests in a fresh vault and a legacy vault via `npm run deploy`.
+- ✅ Set `manifest.json` version 0.9.0 + `versions.json` mapping (`2198314`),
+  tag `0.9.0` pushed (no `v` prefix — matches manifest for release validation).
+- ✅ Live smoke test in the deploy vault: shared PDF library flows (attach →
+  library; same paper in second project → linked not copied; drag-drop single
+  copy in library; new projects have no `pdfs/`; legacy links resolve).
+- ⬜ Create the GitHub Release from tag `0.9.0` (web UI — `gh` CLI not installed):
+  title `0.9.0`, attach `main.js` + `manifest.json` + `styles.css` (built from
+  the tag, ~104 KB bundle), check **Set as a pre-release** for the beta.
+- ⬜ BRAT beta install in a clean vault (`ststudio907/ResearchVault`).
+- ⬜ PR to `obsidianmd/obsidian-releases` (1.0.0 after beta feedback): entry
+  `{"id":"researchvault","name":"ResearchVault","author":"ststudio907",
+  "description": <manifest description>, "repo":"ststudio907/ResearchVault"}`
+  appended to `community-plugins.json`.
 

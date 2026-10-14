@@ -17,7 +17,17 @@ An Obsidian plugin that turns your vault into a **research operating system**: m
 
 ## Installation
 
-Install from the community plugin browser (**Settings → Community plugins → Browse**), or manually:
+### Beta (BRAT)
+
+ResearchVault is currently in beta. The easiest way to install the beta is with the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin:
+
+1. Install and enable **BRAT** from the community plugin browser.
+2. Run **BRAT: Add a beta plugin for testing** and enter `ststudio907/ResearchVault`.
+3. Enable **ResearchVault** under **Settings → Community plugins**.
+
+Once it's in the community catalog, it will be installable directly from **Settings → Community plugins → Browse**.
+
+### Manual
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the latest release.
 2. Copy them into `<Vault>/.obsidian/plugins/researchvault/`.
