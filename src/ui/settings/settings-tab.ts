@@ -11,6 +11,10 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import { CITATION_STYLES } from '../../types';
+import {
+  DEFAULT_PDF_LIBRARY_FOLDER,
+  normalizePdfLibraryFolder,
+} from '../../services/papers/paper-matching';
 import { ConfirmModal } from '../modals/confirm-modal';
 
 export class ResearchVaultSettingTab extends PluginSettingTab {
@@ -63,6 +67,21 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean);
+          await this.rv.saveSettings();
+        });
+      });
+
+    new Setting(root)
+      .setName('PDF library folder')
+      .setDesc(
+        'Vault-level folder that stores attached PDFs, shared by all projects. ' +
+          'Existing per-project copies keep working; only new attachments land here.',
+      )
+      .addText((text) => {
+        text.setPlaceholder(DEFAULT_PDF_LIBRARY_FOLDER);
+        text.setValue(this.rv.settings.pdfLibraryFolder);
+        text.onChange(async (value) => {
+          this.rv.settings.pdfLibraryFolder = normalizePdfLibraryFolder(value);
           await this.rv.saveSettings();
         });
       });

@@ -4,9 +4,9 @@ An Obsidian plugin that turns your vault into a **research operating system**: m
 
 ## Features
 
-- **Projects** — Create, switch, and delete research projects. Each project is a folder (with `papers`, `notes`, `literature`, and `pdfs` subfolders) whose contents are filtered into the sidebar view. Exactly one project is active at a time.
+- **Projects** — Create, switch, and delete research projects. Each project is a folder (with `papers`, `notes`, and `literature` subfolders) whose contents are filtered into the sidebar view. Exactly one project is active at a time.
 - **Paper tracking** — Add papers manually, by pasting CSL-JSON (e.g. from Zotero or a DOI resolver), or by DOI through the built-in citation lookup (Crossref and OpenAlex). Papers are stored as Markdown files with structured frontmatter: authors, year, DOI, citekey, reading status, priority, and bibliography. Citekeys only need to be unique within a project, so the same paper can be added to multiple projects under the same citekey.
-- **PDF attachment** — Link a PDF from your vault to a paper; the plugin copies it into the project's `pdfs/` folder and keeps the paper note and local copy in sync.
+- **Shared PDF library** — Attach a PDF to a paper; the plugin copies it into one vault-level library folder (default `Research Vault/pdfs`, configurable in settings) and wikilinks it from the note. Add the same paper to a second project and, when it matches by DOI (or by title, first author, and year), the existing PDF is linked instead of copied — you'll see a confirmation line in the import form and can override it. Per-project `pdfs/` folders from older versions keep working.
 - **Quote capture** — Select text in the editor and run **Capture quote** to append it to a paper's note as a blockquote quote card with tags.
 - **Projects sidebar** — A dedicated view lists your projects and papers, filters by status/priority, and offers fuzzy search over paper titles, authors, and citekeys.
 - **Citation lookup** (opt-in) — Resolve DOIs and search strings against Crossref and OpenAlex to prefill the paper-import form. Responses are cached locally for 30 days.
@@ -26,9 +26,10 @@ Install from the community plugin browser (**Settings → Community plugins → 
 ## Getting started
 
 1. Click the library ribbon icon (or run **Create research project**) to make your first project.
-2. Run **Add paper** to log your first paper — use DOI lookup or CSL-JSON paste to skip manual typing.
-3. Select text in any note and run **Capture quote** to attach it to a paper.
-4. Run **Open projects sidebar** and pin the view to your sidebar for day-to-day browsing.
+2. Run **Add paper** to log your first paper — use DOI lookup or CSL-JSON paste to skip manual typing, and attach the PDF straight from the form.
+3. Add the same paper to another project: its PDF in the shared library is linked automatically, with no duplicate copy.
+4. Select text in any note and run **Capture quote** to attach it to a paper.
+5. Run **Open projects sidebar** and pin the view to your sidebar for day-to-day browsing.
 
 ## Privacy & external services
 

@@ -2,11 +2,12 @@
 //
 // Manual + linked-PDF paper import, status transitions, quote capture, live
 // sync from vault `modify`/`rename`/`delete` events.
-// PDF import is link-only (D27): the chosen PDF is copied into the project's
-// `pdfs/` folder and wikilinked from the paper note. PDF text extraction
-// (D27 deferred), BibTeX import/export (D17), and relationship management
-// are not shipped — the dead stubs were removed in the 2026-10 cleanup
-// (see `docs/REFACTOR_CONTEXT.md`).
+// PDF import is link-only (D27): the chosen PDF is copied into the vault-level
+// shared PDF library (`settings.pdfLibraryFolder`, D34) and wikilinked from
+// the paper note; the same paper in another project links the same file.
+// PDF text extraction (D27 deferred), BibTeX import/export (D17), and
+// relationship management are not shipped — the dead stubs were removed in
+// the 2026-10 cleanup (see `docs/REFACTOR_CONTEXT.md`).
 //
 
 import { TFile, TFolder, normalizePath } from 'obsidian';
@@ -35,6 +36,7 @@ import {
   type PaperFrontmatter,
 } from './papers/paper-file-format';
 import { SYNC_DEBOUNCE_MS, canonicalPathOf, papersFolderOf } from './papers/paper-paths';
+import { findSamePaper, isInsideFolder, normalizePdfLibraryFolder } from './papers/paper-matching';
 
 /** Input shape accepted by `PaperService.createManual`. */
 export interface PaperManualInput {
@@ -52,7 +54,8 @@ export interface PaperManualInput {
   /**
    * Vault-relative path of an existing PDF file the caller would like linked
    * to the new paper. If provided, `createManual` will copy the file into the
-   * project's `pdfs/` folder (renaming to `<citekey>.pdf`) and inject a
+   * shared PDF library (renaming to `<citekey>.pdf`, D34) — or link it in
+   * place if it's already inside the library — and inject a
    * `## Attached PDF` wikilink section into the note body. The user always
    * supplies the textual metadata — the PDF is just an attachment. (D28.)
    */
@@ -188,9 +191,10 @@ export class PaperService {
   /**
    * Create a paper record from manual input. Generates (or accepts) a
    * citekey, ensures the project's `papers/` folder exists, optionally
-   * copies a chosen PDF into `<project>/pdfs/<citekey>.pdf` (D28: PDF is an
-   * attachment, not a source of truth for metadata), writes the markdown
-   * file with rendered body, and emits `paperImported`.
+   * copies a chosen PDF into the shared PDF library as `<citekey>.pdf`
+   * (D28: a PDF is an attachment, not a source of truth for metadata;
+   * D34: one vault-level library shared by all projects), writes the
+   * markdown file with rendered body, and emits `paperImported`.
    *
    * In memory the paper's `id` is the composite `${projectId}/${citekey}`:
    * citekeys are unique per project (the on-disk basename) but the same
@@ -212,7 +216,8 @@ export class PaperService {
 
     await this.projectManager.ensureProjectFolders(projectId);
     const papersFolder = this.projectManager.getProjectPapersFolder(projectId);
-    const pdfsFolder = this.projectManager.getProjectPdfsFolder(projectId);
+    // D34: attachments land in ONE vault-level library, not `<project>/pdfs/`.
+    const pdfLibrary = normalizePdfLibraryFolder(this.plugin.settings.pdfLibraryFolder);
 
     const citekey = this.resolveCitekey(input, papersFolder, projectId);
     const filePath = normalizePath(`${papersFolder}/${citekey}.md`);
@@ -238,8 +243,28 @@ export class PaperService {
           `PaperService.createManual: selected attachment is not a PDF file ("${trimmedAttach}").`,
         );
       }
-      linkedPdfPath = await this.copyPdfIntoProject(source, pdfsFolder, citekey);
+      // D34: a source already inside the shared library (drag-drop pre-staged
+      // it there, or the user re-picked another project's linked file) is
+      // linked in place — a copy would silently duplicate the same bytes.
+      linkedPdfPath = isInsideFolder(source.path, pdfLibrary)
+        ? source.path
+        : await this.copyPdfIntoLibrary(source, pdfLibrary, citekey);
       sourceTag = 'pdf';
+    } else {
+      // D34: no explicit attachment — if the same paper already exists in
+      // another project with a PDF in the shared library, link that file so
+      // the same work never gets a duplicate copy.
+      const match = findSamePaper(
+        this.getAll(),
+        { doi: input.doi, title: input.title, authors: input.authors, year: input.year },
+        projectId,
+      );
+      if (
+        match?.paper.pdfPath &&
+        this.plugin.app.vault.getAbstractFileByPath(match.paper.pdfPath) instanceof TFile
+      ) {
+        linkedPdfPath = match.paper.pdfPath;
+      }
     }
     if (input.source) {
       sourceTag = input.source;
@@ -296,20 +321,42 @@ export class PaperService {
   }
 
   /**
-   * Copy a PDF `TFile` from anywhere in the vault into `<pdfsFolder>/<citekey>.pdf`.
-   * On a basename collision, suffix `-2`, `-3`, ... until the destination is free.
-   * Returns the absolute vault path of the newly-created file.
+   * Copy a PDF `TFile` from anywhere in the vault into the shared library as
+   * `<citekey>.pdf` (D34). On a basename collision, suffix `-2`, `-3`, ...
+   * until the destination is free. Creates the library folder (and parents)
+   * on demand. Returns the absolute vault path of the newly-created file.
    */
-  private async copyPdfIntoProject(source: TFile, pdfsFolder: string, citekey: string): Promise<string> {
+  private async copyPdfIntoLibrary(source: TFile, pdfLibrary: string, citekey: string): Promise<string> {
     const bytes = await this.plugin.app.vault.readBinary(source);
-    let target = normalizePath(`${pdfsFolder}/${citekey}.pdf`);
+    await this.ensureFolderRecursive(pdfLibrary);
+    let target = normalizePath(`${pdfLibrary}/${citekey}.pdf`);
     let n = 1;
     while (this.plugin.app.vault.getAbstractFileByPath(target)) {
       n += 1;
-      target = normalizePath(`${pdfsFolder}/${citekey}-${n}.pdf`);
+      target = normalizePath(`${pdfLibrary}/${citekey}-${n}.pdf`);
     }
     await this.plugin.app.vault.createBinary(target, bytes);
     return target;
+  }
+
+  /**
+   * Create `path` and any missing parents, tolerating a race with an
+   * already-existing folder. (`vault.createFolder` throws when the parent is
+   * missing and when the folder already exists.)
+   */
+  private async ensureFolderRecursive(path: string): Promise<void> {
+    const segments = path.split('/').filter(Boolean);
+    let current = '';
+    for (const segment of segments) {
+      current = current ? `${current}/${segment}` : segment;
+      if (this.plugin.app.vault.getAbstractFileByPath(current)) continue;
+      try {
+        await this.plugin.app.vault.createFolder(current);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/exists|already/i.test(msg)) throw err;
+      }
+    }
   }
 
   // -------------------------------------------------------------------------

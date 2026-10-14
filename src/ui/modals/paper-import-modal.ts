@@ -11,6 +11,12 @@
 // `createFromPdf` shim was removed — see plans/plan.md §13 dated entry
 // "Sprint 2 — Sub-pass 2.7.1".
 //
+// Per D34 (2026-10 refactor), attachments live in ONE vault-level shared PDF
+// library (`settings.pdfLibraryFolder`). If the paper being added already
+// exists in another project — by DOI, else title + primary author + year —
+// the library file of that copy is linked instead of duplicated
+// (`maybeReuseExistingPdf`); the info line makes the sharing explicit.
+//
 // Surface (per plans/plan.md §14 — 2.2):
 //   • Active project dropdown (defaults to the current active project).
 //   • Fields: title*, first author last name*, additional authors, year,
@@ -33,6 +39,7 @@ import { applyStandardModalWidth } from './modal-width';
 import { cslToManualInput } from '../../services/citation/csl-to-paper';
 import type { CslJsonRecord } from '../../services/citation/types';
 import { CitationSearchModal } from './citation-search-modal';
+import { findSamePaper, normalizePdfLibraryFolder } from '../../services/papers/paper-matching';
 
 export interface PaperImportOptions {
   /** When set, the modal opens in edit mode pre-populated with the paper's metadata. */
@@ -53,11 +60,12 @@ interface PaperImportForm {
   keywords: string;
   /**
    * Vault-relative path of a PDF the user picked via "Browse vault…" or
-   * drag-drop. Submit *always* sends the typed metadata through
-   * `createManual`; if `pdfPath` is non-empty, `createManual` copies the
-   * file into `<project>/pdfs/<citekey>.pdf` and adds a `## Attached PDF`
-   * wikilink section. The PDF is an attachment only — it does not supply
-   * or override any metadata field. (D28.)
+   * drag-drop (or that was auto-linked from another project, D34). Submit
+   * *always* sends the typed metadata through `createManual`; if `pdfPath`
+   * is non-empty, `createManual` copies the file into the shared PDF library
+   * (`settings.pdfLibraryFolder`) and adds a `## Attached PDF` wikilink
+   * section. The PDF is an attachment only — it does not supply or override
+   * any metadata field. (D28.)
    */
   pdfPath: string;
   status: ReadingStatus;
@@ -80,6 +88,12 @@ export class PaperImportModal extends Modal {
   private previewedCitekey = '';
   /** Cached node under the PDF setting that displays the linked destination. */
   private pdfInfoEl: HTMLElement | null = null;
+  /**
+   * D34: when the attached `form.pdfPath` was auto-linked from another
+   * project's copy of the same paper, remember which project so the PDF info
+   * line can explain "shared, not copied". Cleared on any manual attach.
+   */
+  private pdfLinkSourceProjectId: string | null = null;
 
   // ----- 4.1.C — autofill tracking + citation lookup affordances -----
   /** Fields the user has manually edited; autofill only touches fields NOT in this set. */
@@ -205,6 +219,8 @@ export class PaperImportModal extends Modal {
         dropdown.setValue(this.form.projectId);
         dropdown.onChange((v) => {
           this.form.projectId = v;
+          // D34: re-run cross-project same-paper detection for the new target.
+          this.maybeReuseExistingPdf();
         });
       });
   }
@@ -402,6 +418,7 @@ export class PaperImportModal extends Modal {
           void this.pickPdfFromVault().then((picked) => {
             if (picked) {
               this.form.pdfPath = picked.path;
+              this.pdfLinkSourceProjectId = null; // manual pick overrides any auto-link (D34)
               this.refreshPdfInfo();
               this.updateSubmitEnabled();
             }
@@ -415,8 +432,8 @@ export class PaperImportModal extends Modal {
     const helpEl = root.createDiv({ cls: 'researchvault-pdf-help' });
     helpEl.setText(
       this.isEdit
-        ? 'Re-link or replace the attached PDF. The file is copied into the project’s pdfs/ folder.'
-        : 'Optional. Attach a PDF from the vault — it will be copied into the project’s pdfs/ folder and wikilinked from the note. It does not affect any metadata field.',
+        ? 'Re-link or replace the attached PDF. New files are copied into the vault’s shared PDF library.'
+        : 'Optional. Attach a PDF from the vault — it will be copied into the vault’s shared PDF library and wikilinked from the note, so the same paper in another project links the same file. It does not affect any metadata field.',
     );
 
     // (2) Drag-and-drop zone for PDFs already in the vault. Full-width
@@ -443,10 +460,11 @@ export class PaperImportModal extends Modal {
       const files = Array.from(e.dataTransfer?.files ?? []);
       for (const file of files) {
         if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-          // Dragged files land in the OS temp dir, not the vault. Copy into the project's pdfs/ folder first.
+          // Dragged files land in the OS temp dir, not the vault. Copy into the shared PDF library (D34) and link it.
           void this.copyPdfIntoVault(file).then((targetPath) => {
             if (targetPath) {
               this.form.pdfPath = targetPath;
+              this.pdfLinkSourceProjectId = null; // manual drop overrides any auto-link (D34)
               this.refreshPdfInfo();
               this.updateSubmitEnabled();
             }
@@ -523,27 +541,66 @@ export class PaperImportModal extends Modal {
   }
 
   /**
-   * Update the PDF destination info line. Shows the linked vault path (after a
-   * pick or a successful drop copy) or the planned `pdfs/` target folder for
-   * the currently selected project when no PDF is chosen yet. Hidden when no
-   * project is picked so we never point at a phantom folder.
+   * Update the PDF destination info line. Shows the linked vault path (after
+   * a pick, a successful drop copy, or a D34 cross-project auto-link), or the
+   * shared-library folder when no PDF is chosen yet.
    */
   private refreshPdfInfo(): void {
     if (!this.pdfInfoEl) return;
-    const project = this.rv.projectManager.getProjectById(this.form.projectId);
     if (this.form.pdfPath) {
-      this.pdfInfoEl.setText(`Linked PDF: ${this.form.pdfPath}`);
+      if (this.pdfLinkSourceProjectId) {
+        const sourceName =
+          this.rv.projectManager.getProjectById(this.pdfLinkSourceProjectId)?.name ??
+          this.pdfLinkSourceProjectId;
+        // D34: make the sharing explicit so the user can override if it's wrong.
+        this.pdfInfoEl.setText(
+          `Same paper found in “${sourceName}” — its PDF is linked, not copied: ${this.form.pdfPath}`,
+        );
+      } else {
+        this.pdfInfoEl.setText(`Linked PDF: ${this.form.pdfPath}`);
+      }
       this.pdfInfoEl.removeClass('mod-hidden');
       return;
     }
-    if (project) {
-      const target = this.rv.projectManager.getProjectPdfsFolder(project.id);
-      this.pdfInfoEl.setText(`PDFs will be copied to: ${target}/`);
-      this.pdfInfoEl.removeClass('mod-hidden');
-      return;
-    }
-    this.pdfInfoEl.setText('Pick a project to see where the PDF will be saved.');
+    const target = normalizePdfLibraryFolder(this.rv.settings.pdfLibraryFolder);
+    this.pdfInfoEl.setText(`PDFs will be copied to: ${target}/`);
     this.pdfInfoEl.removeClass('mod-hidden');
+  }
+
+  /**
+   * D34 — if the paper being added looks like one that already exists in
+   * ANOTHER project (DOI match, else title + primary author + year) and that
+   * copy has a PDF attached, link the shared file instead of demanding a new
+   * copy. Runs after DOI/CSL prefill and project changes. Never fires in
+   * edit mode and never overwrites a PDF the user deliberately attached.
+   */
+  private maybeReuseExistingPdf(): void {
+    if (this.isEdit) return;
+    if (this.form.pdfPath.trim()) return;
+    const year = Number(this.form.year);
+    const authors = [
+      this.form.primaryAuthorLast,
+      ...this.form.additionalAuthors.split(','),
+    ]
+      .map((a) => a.trim())
+      .filter(Boolean);
+    const match = findSamePaper(
+      this.rv.paperService.getAll(),
+      {
+        doi: this.form.doi.trim() || undefined,
+        title: this.form.title.trim() || undefined,
+        authors,
+        year: Number.isFinite(year) ? year : undefined,
+      },
+      this.form.projectId,
+    );
+    if (match?.paper.pdfPath) {
+      this.form.pdfPath = match.paper.pdfPath;
+      const sourceProjectId = match.paper.customFields['projectId'];
+      this.pdfLinkSourceProjectId = typeof sourceProjectId === 'string' ? sourceProjectId : null;
+      this.refreshPdfInfo();
+      this.updateSubmitEnabled();
+    }
   }
 
   /** Compute a non-colliding citekey. Returns `null` if inputs are insufficient. */
@@ -794,6 +851,11 @@ export class PaperImportModal extends Modal {
     // setValue() does not fire onChange, so autofilledFields tracking and
     // the form state are not disturbed.
     this.syncInputs();
+
+    // D34: with fresh DOI/title/author data in the form (lookup, title
+    // search, CSL-JSON paste), check whether another project already has the
+    // same paper with a PDF — and link it rather than copying.
+    this.maybeReuseExistingPdf();
   }
 
   /** Push current form values into the cached input components. */
@@ -847,7 +909,8 @@ export class PaperImportModal extends Modal {
 
       // D28 — submit is always typed metadata + optional PDF attachment.
       // `createManual` re-validates required fields and copies the PDF (if any)
-      // into `<project>/pdfs/<citekey>.pdf` with a `-2 -3 …` collision suffix.
+      // into the shared PDF library with a `-2 -3 …` collision suffix (D34),
+      // or links it in place when it's already inside the library.
       // The citekey preview was already validated, so a non-null result is guaranteed.
       const citekey = this.computePreviewedCitekey();
       if (!citekey) return;
@@ -909,33 +972,43 @@ export class PaperImportModal extends Modal {
   }
 
   /**
-   * Copy a dropped file (from the OS) into the project's `pdfs/` folder and
-   * return its vault path. Returns `null` on failure. The destination is the
-   * per-project pdfs/ folder (D27) so the note's `## Attached PDF` wikilink
-   * resolves to a path that lives next to its paper.
+   * Copy a dropped file (from the OS) into the vault-level shared PDF library
+   * and return its vault path. Returns `null` on failure. Named after the
+   * live citekey preview when available (falling back to the dropped file's
+   * basename), with a `-2`, `-3`, … suffix on collision. Lands directly in
+   * the library so `createManual` sees an in-library source and LINKS it —
+   * one physical file total, fixing the old double-copy (D27/D34).
    */
   private async copyPdfIntoVault(file: File): Promise<string | null> {
-    const project = this.rv.projectManager.getProjectById(this.form.projectId);
-    if (!project) {
-      new Notice('ResearchVault: pick a project first.');
-      return null;
-    }
+    const pdfLibrary = normalizePdfLibraryFolder(this.rv.settings.pdfLibraryFolder);
 
-    const pdfsFolder = this.rv.projectManager.getProjectPdfsFolder(project.id);
-    // Ensure the target folder exists. `createFolder` throws if the folder is
-    // already there, so swallow that case while still surfacing real errors.
+    // Ensure the target folder exists, creating parents as needed.
+    // `createFolder` throws when the folder is already there — swallow that
+    // case while still surfacing real errors.
     try {
-      await this.app.vault.createFolder(pdfsFolder);
+      const segments = pdfLibrary.split('/').filter(Boolean);
+      let current = '';
+      for (const segment of segments) {
+        current = current ? `${current}/${segment}` : segment;
+        if (!this.app.vault.getAbstractFileByPath(current)) {
+          await this.app.vault.createFolder(current);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!/exists/i.test(msg) && !/already/i.test(msg)) {
-        new Notice(`ResearchVault: failed to create pdfs folder — ${msg}`);
+      if (!/exists|already/i.test(msg)) {
+        new Notice(`ResearchVault: failed to create the PDF library folder — ${msg}`);
         return null;
       }
     }
 
-    const safeName = file.name.replace(/\.pdf$/i, '') + '.pdf';
-    const targetPath = `${pdfsFolder}/${safeName}`;
+    const baseName = this.previewedCitekey || file.name.replace(/\.pdf$/i, '');
+    let targetPath = `${pdfLibrary}/${baseName}.pdf`;
+    let n = 1;
+    while (this.app.vault.getAbstractFileByPath(targetPath)) {
+      n += 1;
+      targetPath = `${pdfLibrary}/${baseName}-${n}.pdf`;
+    }
 
     try {
       const arrayBuffer = await file.arrayBuffer();

@@ -1,8 +1,8 @@
 // src/types/literature.ts
 
 export interface Paper {
-  id: string;                    // UUID or citekey
-  citekey: string;                 // Unique citation key (e.g., "smith2023learning")
+  id: string;                    // Composite in-memory identity: `${projectId}/${citekey}`
+  citekey: string;                 // Citation key, unique within a project (e.g., "smith_2023_learning")
   title: string;
   /** Author last names, one string per author (YAML list). Empty strings are not allowed. */
   authors: string[];

@@ -53,6 +53,7 @@ See `/src/types/` for full interfaces. Key types:
 
 **Paper:**
 - citekey (unique within its project), title, authors[], year, venue, doi, pdfPath
+- pdfPath points into the vault-level shared PDF library (`settings.pdfLibraryFolder`, default `Research Vault/pdfs`, D34): the same paper in two projects links the same file; matching is by DOI, else title + primary author + year — never citekey alone (see `src/services/papers/paper-matching.ts`)
 - status: 'unread' | 'queued' | 'skimming' | 'reading' | 'annotating' | 'summarized' | 'synthesized' | 'archived'
 - priority: 'low' | 'medium' | 'high' | 'critical'
 - quotes[], claims[], citations[], related[]

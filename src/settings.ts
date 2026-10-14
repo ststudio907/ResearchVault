@@ -54,7 +54,22 @@ export interface ResearchVaultSettings {
    * lives in `FilterPanelState` (ui/views/filter-panel.ts).
    */
   filterPanel: FilterPanelState;
+  /**
+   * Vault-level folder where attached PDFs are stored (D34, 2026-10 refactor).
+   * One shared library across all projects — the same paper attached in two
+   * projects links the same file, never a duplicate copy. Editable in
+   * Settings → Research Vault. Existing per-project `pdfs/` copies stay
+   * valid (their `pdfPath` still points at them); only NEW attachments land
+   * here.
+   */
+  pdfLibraryFolder: string;
 }
+
+// D34: the shared-PDF-library default + normalizer live in the pure
+// `papers/paper-matching` module (importable from unit tests); imported for
+// use below and re-exported so settings consumers have one obvious site.
+import { DEFAULT_PDF_LIBRARY_FOLDER, normalizePdfLibraryFolder } from './services/papers/paper-matching';
+export { DEFAULT_PDF_LIBRARY_FOLDER, normalizePdfLibraryFolder };
 
 export const DEFAULT_TEMPLATES: TemplateConfig = {
   paper: `# {{title}}
@@ -124,6 +139,8 @@ export const DEFAULT_SETTINGS: ResearchVaultSettings = {
   // 2.9.C: filter panel defaults = show everything, Attention on, panel
   // collapsed. `status`/`priority` null = all (no filter bytes by default).
   filterPanel: { ...DEFAULT_FILTER_PANEL },
+  // D34: one vault-level PDF library shared by all projects.
+  pdfLibraryFolder: DEFAULT_PDF_LIBRARY_FOLDER,
 };
 
 /**
@@ -151,6 +168,8 @@ export function migrateSettings(raw: unknown): ResearchVaultSettings {
       ...((candidate.filterPanel ?? {}) as Partial<FilterPanelState>),
     },
     projects: Array.isArray(candidate.projects) ? candidate.projects : [],
+    // D34: default-fill + normalize (guards against a persisted empty string).
+    pdfLibraryFolder: normalizePdfLibraryFolder(candidate.pdfLibraryFolder),
     version: CURRENT_SETTINGS_VERSION,
   };
 }

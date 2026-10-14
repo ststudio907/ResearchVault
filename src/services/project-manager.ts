@@ -14,13 +14,16 @@ import type { ResearchVaultPlugin } from '../core/plugin';
 
 export type { Project, ProjectCreateConfig };
 
-/** Standard folder layout inside every ResearchVault project. */
+/**
+ * Standard folder layout inside every ResearchVault project. No `pdfs/`
+ * entry — attachments live in the vault-level shared library
+ * (`settings.pdfLibraryFolder`, D34).
+ */
 export interface ProjectFolders {
   root: string;
   papers: string;
   notes: string;
   literature: string;
-  pdfs: string;
 }
 
 /** Join two vault path segments with Obsidian's `normalizePath` so slashes and slugs are handled the plugin-wide way. */
@@ -102,13 +105,14 @@ export class ProjectManager {
     }
 
     // 2.9.UX: materialize the FULL project skeleton immediately — papers,
-    // notes, literature, pdfs — so the user sees a complete project home
+    // notes, literature — so the user sees a complete project home
     // the moment creation succeeds, instead of the subfolders appearing
-    // lazily on the next reload or first paper import.
+    // lazily on the next reload or first paper import. No `pdfs/` subfolder:
+    // attachments live in the vault-level shared library (D34); existing
+    // projects keep their per-project `pdfs/` folders untouched.
     await this.ensureFolder(joinPath(folderPath, 'papers'));
     await this.ensureFolder(joinPath(folderPath, 'notes'));
     await this.ensureFolder(joinPath(folderPath, 'literature'));
-    await this.ensureFolder(joinPath(folderPath, 'pdfs'));
 
     const now = Date.now();
     const project: Project = {
@@ -218,20 +222,10 @@ export class ProjectManager {
   }
 
   /**
-   * Return a fully-normalized path to the standard `pdfs/` subfolder for a project.
-   * Does not touch the disk; pair with `ensureProjectFolders` to create it. Used
-   * by `PaperService.createFromPdf` to land linked PDFs in a per-project folder
-   * rather than the user's drop-in location (D27).
-   */
-  getProjectPdfsFolder(projectId: string): string {
-    const project = this.requireProject(projectId);
-    return joinPath(project.folderPath, 'pdfs');
-  }
-
-  /**
    * Create the standard subfolder layout for a project. Idempotent — existing
    * folders are left alone. Used by `PaperService` before it writes its first
    * paper note, and exposed so future modals can rely on the layout existing.
+   * No `pdfs/` subfolder — PDFs live in the vault-level shared library (D34).
    */
   async ensureProjectFolders(projectId: string): Promise<ProjectFolders> {
     const project = this.requireProject(projectId);
@@ -241,12 +235,10 @@ export class ProjectManager {
       papers: joinPath(root, 'papers'),
       notes: joinPath(root, 'notes'),
       literature: joinPath(root, 'literature'),
-      pdfs: joinPath(root, 'pdfs'),
     };
     await this.ensureFolder(folders.papers);
     await this.ensureFolder(folders.notes);
     await this.ensureFolder(folders.literature);
-    await this.ensureFolder(folders.pdfs);
     return folders;
   }
 
