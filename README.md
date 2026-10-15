@@ -39,13 +39,13 @@ Once it's in the community catalog, it will be installable directly from **Setti
 2. Run **Add paper** to log your first paper — use DOI lookup or CSL-JSON paste to skip manual typing, and attach the PDF straight from the form.
 3. Add the same paper to another project: its PDF in the shared library is linked automatically, with no duplicate copy.
 4. Select text in any note and run **Capture quote** to attach it to a paper.
-5. Run **Open projects sidebar** and pin the view to your sidebar for day-to-day browsing.
+5. Run **Open sidebar** and pin the view to your sidebar for day-to-day browsing.
 
 ## Privacy & external services
 
 ResearchVault runs locally and makes **no network requests** until you explicitly enable one of the opt-in integrations below. There is no telemetry, no auto-update, and no remote code execution.
 
-- **Citation lookup** (off by default, under **Settings → ResearchVault → Citations**) sends only the DOI or search string you typed to `api.crossref.org` and/or `api.openalex.org`. No vault content is sent. Responses are cached locally for 30 days so repeat lookups don't re-hit the network. The optional polite-pool `mailto:` contact is off by default and, when enabled, is sent only to your chosen provider.
+- **Citation lookup** (off by default, under **Settings → ResearchVault → Citation lookup**) sends only the DOI or search string you typed to `api.crossref.org` and/or `api.openalex.org`. No vault content is sent. Responses are cached locally for 30 days so repeat lookups don't re-hit the network. The optional polite-pool `mailto:` contact is off by default and, when enabled, is sent only to your chosen provider.
 - **Zotero sync** (off by default, under **Settings → ResearchVault → Zotero sync**) sends only library read requests — plus your search terms — to `api.zotero.org`, using the account ID and read-only API key you provide. No vault content is sent. The API key is stored locally in this vault's plugin settings file.
 - **Zotero push** (off by default, desktop only) sends a paper's metadata (title, authors, year, DOI, abstract) to the Zotero desktop app running on the same computer, via Zotero's local connector server on `127.0.0.1:23119`. All traffic stays on your machine. The push button appears only when Zotero is actually running.
 
@@ -57,6 +57,7 @@ npm run dev           # type-check + watch-bundle into main.js
 npm run build         # one-shot production bundle (writes main.js + size report)
 npm run analyze       # alias for build; also writes esbuild-metafile.json
 npm run lint          # eslint with eslint-plugin-obsidianmd
+npm test              # vitest unit tests
 npm run deploy        # copy main.js/manifest/styles.css into a local test vault
 ```
 
