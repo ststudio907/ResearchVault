@@ -17,6 +17,19 @@ export interface Paper {
   authorFirstNames?: string[];
   year: number;
   venue?: string;                  // Journal, conference, etc.
+  /**
+   * Publication metadata (3.2 Citation excellence / D38): volume, issue,
+   * pages, publisher, entryType. All optional and additive; absent on older
+   * notes. These five fields are what lets the `.bib` export aim at
+   * publication-grade BibTeX instead of "title + author + year only".
+   * Captured once at import — never re-derived at export.
+   */
+  volume?: string;
+  issue?: string;
+  /** Page range like "123-145" (a single page string is also fine). */
+  pages?: string;
+  publisher?: string;
+  entryType?: PaperEntryType;
   doi?: string;
   url?: string;
   /**
@@ -80,6 +93,23 @@ export type ReadingStatus =
   | 'excluded';
 
 export type Priority = 'low' | 'normal' | 'high';
+
+/**
+ * Coarse publication entry type used for publication-grade export (3.2 Citation
+ * excellence / D38, 2026-10). Six values, mirroring the BibTeX entry types a
+ * reference manager happily round-trips. Captured at import (mapped from the
+ * CSL `type` vocabulary) and round-tripped through frontmatter additively —
+ * older notes simply have no `entryType` and exports fall back to `'article'`.
+ *
+ * Kept in sync with the `PAPER_ENTRY_TYPES` tuple in `index.ts`.
+ */
+export type PaperEntryType =
+  | 'article'
+  | 'inproceedings'
+  | 'book'
+  | 'incollection'
+  | 'thesis'
+  | 'misc';
 
 export interface Quote {
   id: string;

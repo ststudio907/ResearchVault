@@ -13,6 +13,7 @@
 // `PaperService` without polling.
 
 import { ItemView, WorkspaceLeaf, Notice, Platform, setIcon } from 'obsidian';
+import { paperToBibtexEntry } from '../../services/citation/bibtex';
 import type { ConnectorItem } from '../../services/integrations/zotero/zotero-local-client';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
@@ -140,6 +141,13 @@ export class ProjectsSidebarView extends ItemView {
       this.rv.eventBus.on('paperRemoved', () => this.scheduleRenderList()),
       this.rv.eventBus.on('paperStatusChanged', () => this.scheduleRenderList()),
       this.rv.eventBus.on('projectChanged', () => {
+        this.currentQuery = '';
+        this.render();
+      }),
+      // Deletion of the *last* project emits only `projectsChanged` (no
+      // fallback `projectChanged`), so subscribe here too or the sidebar
+      // would keep showing a ghost project name.
+      this.rv.eventBus.on('projectsChanged', () => {
         this.currentQuery = '';
         this.render();
       }),
@@ -502,7 +510,10 @@ export class ProjectsSidebarView extends ItemView {
     });
     const switchBtn = titleRow.createEl('button', {
       cls: 'clickable-icon',
-      attr: { 'aria-label': 'Switch active project', title: 'Switch active project' },
+      // 2026-10-17: the switch modal is now the "Manage projects" hub —
+      // activate, create, and delete (with confirmation) all live there so
+      // the sidebar title row stays a single, tidy control.
+      attr: { 'aria-label': 'Manage projects', title: 'Manage projects' },
     });
     setIcon(switchBtn, 'folders');
     switchBtn.addEventListener('click', () => this.rv.openSwitchProjectModal());
@@ -665,6 +676,29 @@ export class ProjectsSidebarView extends ItemView {
       quoteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.rv.openQuoteCaptureModal({ defaultPaperId: paper.id });
+      });
+
+      // ---- 3.2 C2: copy actions (BibTeX entry / citekey to clipboard) ------
+      const copyBibBtn = line3.createEl('button', {
+        cls: 'clickable-icon researchvault-sidebar-copy-bib-btn',
+        attr: { 'aria-label': 'Copy BibTeX entry', title: 'Copy BibTeX entry' },
+      });
+      setIcon(copyBibBtn, 'braces');
+      copyBibBtn.addEventListener('click', () => {
+        void navigator.clipboard
+          .writeText(paperToBibtexEntry(paper))
+          .then(() => new Notice(`ResearchVault: BibTeX for @${paper.citekey} copied.`));
+      });
+
+      const copyKeyBtn = line3.createEl('button', {
+        cls: 'clickable-icon researchvault-sidebar-copy-key-btn',
+        attr: { 'aria-label': 'Copy citekey', title: 'Copy citekey' },
+      });
+      setIcon(copyKeyBtn, 'key');
+      copyKeyBtn.addEventListener('click', () => {
+        void navigator.clipboard
+          .writeText(paper.citekey)
+          .then(() => new Notice(`ResearchVault: citekey "${paper.citekey}" copied.`));
       });
 
       // ---- 5.2: Push to Zotero (desktop + enabled + reachable only) -------

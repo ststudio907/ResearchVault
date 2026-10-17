@@ -43,7 +43,30 @@ export default tseslint.config(
 			// remainder of the sentence is hand-kept sentence case.
 			'obsidianmd/ui/sentence-case': [
 				'error',
-				{ ignoreRegex: ['^ResearchVault:'] },
+				{
+					ignoreRegex: ['^ResearchVault:'],
+					// Industry acronyms are legitimately all-caps in UI copy
+					// (5.4 settings audit): the rule would otherwise demand
+					// "doi", "ttl", "lru" in settings descriptions. The option
+					// REPLACES the plugin's built-in default list rather than
+					// merging with it, so the defaults are mirrored here (sync
+					// with upstream `DEFAULT_ACRONYMS` on a plugin major bump)
+					// plus our additions: DOI, TTL, LRU.
+					acronyms: [
+						'API', 'HTTP', 'HTTPS', 'URL', 'DNS', 'TCP', 'IP', 'SSH', 'TLS',
+						'SSL', 'FTP', 'SFTP', 'SMTP',
+						'JSON', 'XML', 'HTML', 'CSS', 'PDF', 'CSV', 'YAML', 'SQL',
+						'PNG', 'JPG', 'JPEG', 'GIF', 'SVG',
+						'2FA', 'MFA', 'OAuth', 'JWT', 'LDAP', 'SAML',
+						'SDK', 'IDE', 'CLI', 'GUI', 'CRUD', 'SOAP',
+						'CPU', 'GPU', 'RAM', 'SSD', 'USB',
+						'UI', 'OK',
+						'RSS', 'S3',
+						'ID', 'UUID', 'GUID', 'SHA', 'MD5', 'ASCII', 'UTF-8', 'UTF-16',
+						'DOM', 'CDN', 'FAQ', 'AI', 'ML', 'LLM',
+						'DOI', 'TTL', 'LRU',
+					],
+				},
 			],
 		},
 	},

@@ -173,11 +173,16 @@ export class ProjectManager {
     if (this.activeId === id) this.activeId = null;
     await this.persist();
 
-    // Emit any remaining project so subscribers can refresh; if none, no-op.
+    // Emit any remaining project so subscribers can refresh, and always emit
+    // the set-level event so views can clear a stale active-project display
+    // when the *last* project is deleted (no fallback exists to emit).
     const fallback = this.plugin.settings.projects[0];
     if (fallback) {
       this.plugin.eventBus.emit('projectChanged', fallback);
     }
+    this.plugin.eventBus.emit('projectsChanged', {
+      projects: [...this.plugin.settings.projects],
+    });
   }
 
   // -------------------------------------------------------------------------

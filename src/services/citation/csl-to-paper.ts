@@ -13,7 +13,43 @@
 //
 
 import type { PaperManualInput } from '../paper-service';
+import type { PaperEntryType } from '../../types';
 import type { CslAuthor, CslDate, CslJsonRecord } from './types';
+
+/**
+ * CSL `type` vocabulary → the six BibTeX-flavored entry types used by the
+ * publication-grade export (3.2 Citation excellence / D38, 2026-10). Anything
+ * we do not recognise maps to `undefined` so the exporter keeps its `'article'`
+ * fallback.
+ */
+const CSL_TYPE_TO_ENTRY_TYPE: Readonly<Record<string, PaperEntryType>> = {
+  'journal-article': 'article',
+  'article-journal': 'article',
+  'article-magazine': 'article',
+  'article-newspaper': 'article',
+  'review-article': 'article',
+  'paper-conference': 'inproceedings',
+  'proceedings-article': 'inproceedings',
+  speech: 'inproceedings',
+  book: 'book',
+  'reference-book': 'book',
+  'edited-book': 'book',
+  chapter: 'incollection',
+  'book-chapter': 'incollection',
+  legal_case: 'incollection',
+  thesis: 'thesis',
+  dissertation: 'thesis',
+  preprint: 'misc',
+  report: 'misc',
+  dataset: 'misc',
+  webpage: 'misc',
+  manuscript: 'misc',
+};
+
+export function mapCslTypeToEntryType(cslType: string): PaperEntryType | undefined {
+  const key = cslType.trim().toLowerCase();
+  return key.length > 0 ? CSL_TYPE_TO_ENTRY_TYPE[key] : undefined;
+}
 
 /**
  * Pre-existing user input from the import modal. Non-empty fields here stay
@@ -95,6 +131,28 @@ export function cslToManualInput(
 
   const url = pick(existing?.url, text(record.URL));
   if (url) out.url = url;
+
+  // D38 / 3.2 Citation excellence C0 (2026-10): capture the journal-level
+  // fields that make `.bib` exports publication-grade. Same merge rule as
+  // every other field — a non-empty existing value wins. CrossRef hands us
+  // `volume`/`issue` as numbers sometimes, OpenAlex as strings; normalise
+  // both to strings and keep absent instead of empty.
+  const volume = pick(
+    existing?.volume,
+    record.volume === undefined || record.volume === null ? undefined : String(record.volume),
+  );
+  if (volume) out.volume = volume;
+  const issue = pick(
+    existing?.issue,
+    record.issue === undefined || record.issue === null ? undefined : String(record.issue),
+  );
+  if (issue) out.issue = issue;
+  const pages = pick(existing?.pages, text(record.page));
+  if (pages) out.pages = pages;
+  const publisher = pick(existing?.publisher, text(record.publisher));
+  if (publisher) out.publisher = publisher;
+  const entryType = existing?.entryType ?? mapCslTypeToEntryType(text(record.type) ?? '');
+  if (entryType) out.entryType = entryType;
 
   // 3a (2026-07-22 user-flagged): abstract auto-fill is in the spec; both
   // providers return it for ~80–85% of journal-article DOIs. We just surface
@@ -181,8 +239,9 @@ export function asText(value: string | string[] | undefined): string | undefined
   if (Array.isArray(value)) {
     const joined = value
       .filter((s): s is string => typeof s === 'string')
-      .join('; ')
-      .trim();
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .join('; ');
     return joined.length > 0 ? joined : undefined;
   }
   if (typeof value !== 'string') return undefined;

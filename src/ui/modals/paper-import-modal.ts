@@ -27,9 +27,10 @@
 //   • "Add paper" CTA disabled while required fields are blank or invalid.
 //
 
-import { App, Modal, Notice, Setting, TFile, TextComponent, TextAreaComponent } from 'obsidian';
+import { App, DropdownComponent, Modal, Notice, Setting, TFile, TextComponent, TextAreaComponent } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { Paper, Priority, ReadingStatus } from '../../types';
+import { PAPER_ENTRY_TYPES } from '../../types';
 import type { PaperManualInput } from '../../services/paper-service';
 import { CslJsonImportModal } from './csl-json-import-modal';
 import { ZoteroSyncModal } from './zotero-sync-modal';
@@ -55,6 +56,13 @@ interface PaperImportForm {
   firstNames: string;
   year: string;
   venue: string;
+  /** D38 publication details (optional; exported to .bib). */
+  volume: string;
+  issue: string;
+  pages: string;
+  publisher: string;
+  /** One of `PAPER_ENTRY_TYPES` or '' (= auto/'article' fallback at export). */
+  entryType: string;
   doi: string;
   abstract: string;
   keywords: string;
@@ -111,6 +119,8 @@ export class PaperImportModal extends Modal {
    * 2026-09-27). We keep the component refs keyed by form field.
    */
   private readonly inputRefs: Partial<Record<keyof PaperImportForm, TextComponent | TextAreaComponent>> = {};
+  /** Cached entry-type dropdown (D38) so applyManualInput can sync its DOM. */
+  private entryTypeDropdown: DropdownComponent | null = null;
 
   constructor(app: App, plugin: ResearchVaultPlugin, options: PaperImportOptions = {}) {
     super(app);
@@ -131,6 +141,11 @@ export class PaperImportModal extends Modal {
         firstNames: (p.authorFirstNames ?? []).slice(1).join(', '),
         year: String(p.year),
         venue: p.venue ?? '',
+        volume: p.volume ?? '',
+        issue: p.issue ?? '',
+        pages: p.pages ?? '',
+        publisher: p.publisher ?? '',
+        entryType: p.entryType ?? '',
         doi: p.doi ?? '',
         abstract: p.abstract ?? '',
         keywords: p.keywords.join(', '),
@@ -151,6 +166,11 @@ export class PaperImportModal extends Modal {
         firstNames: '',
         year: String(new Date().getFullYear()),
         venue: '',
+        volume: '',
+        issue: '',
+        pages: '',
+        publisher: '',
+        entryType: '',
         doi: '',
         abstract: '',
         keywords: '',
@@ -355,6 +375,8 @@ export class PaperImportModal extends Modal {
         });
       });
 
+    this.renderPublicationDetails(root);
+
     new Setting(root)
       .setName('Abstract')
       .addTextArea((text) => {
@@ -501,6 +523,59 @@ export class PaperImportModal extends Modal {
 
     // Initial state for the DOI Lookup button.
     this.updateLookupButton();
+  }
+
+  /**
+   * D38 / 3.2 Citation excellence C0: collapsed "Publication details" block
+   * (volume / issue / pages / publisher / entry type). Optional in both
+   * modes; all five ride the same track-on-edit contract as the rest of the
+   * form, so a DOI lookup or CSL-JSON paste fills them without trampling
+   * anything the user typed.
+   */
+  private renderPublicationDetails(root: HTMLElement): void {
+    const details = root.createEl('details', {
+      cls: 'researchvault-paper-import-publication',
+    });
+    details.createEl('summary', { text: 'Publication details (optional)' });
+    details.createEl('p', {
+      // eslint-disable-next-line obsidianmd/ui/sentence-case -- CSL is an acronym (cf. the DOI/PDF precedent in this file)
+      text: 'Volume, issue, pages, publisher and entry type — what the bibliography export needs for publication-grade BibTeX. Lookup and CSL-JSON paste fill these automatically.',
+      cls: 'setting-item-description',
+    });
+
+    const addTrimmedText = (
+      name: string,
+      field: 'volume' | 'issue' | 'pages' | 'publisher',
+      placeholder: string,
+    ): void => {
+      new Setting(details).setName(name).addText((text) => {
+        text.setPlaceholder(placeholder);
+        text.setValue(this.form[field]);
+        this.inputRefs[field] = text;
+        text.onChange((v) => {
+          this.autofilledFields.add(field);
+          this.form[field] = v;
+        });
+      });
+    };
+    addTrimmedText('Volume', 'volume', 'E.g. 42');
+    addTrimmedText('Issue', 'issue', 'E.g. 3');
+    addTrimmedText('Pages', 'pages', 'E.g. 123-145');
+    addTrimmedText('Publisher', 'publisher', 'E.g. Springer');
+
+    new Setting(details)
+      .setName('Entry type')
+      .setDesc('BibTeX entry type. Empty means the exporter falls back to its default.')
+      .addDropdown((dropdown) => {
+        dropdown.addOption('', 'Auto');
+        for (const t of PAPER_ENTRY_TYPES) dropdown.addOption(t, t);
+        dropdown.setValue(this.form.entryType);
+        this.entryTypeDropdown = dropdown;
+        dropdown.onChange((v) => {
+          this.autofilledFields.add('entryType');
+          this.form.entryType = v;
+        });
+      });
   }
 
   private renderPreview(root: HTMLElement): void {
@@ -845,6 +920,20 @@ export class PaperImportModal extends Modal {
       this.form.keywords = keywords.join(', ');
     }
 
+    // D38 publication details — same track-on-edit contract. The dropdown
+    // needs an explicit DOM sync (it isn't in `inputRefs`).
+    const pubFields = ['volume', 'issue', 'pages', 'publisher'] as const;
+    for (const field of pubFields) {
+      const value = input[field];
+      if (value && !this.autofilledFields.has(field)) {
+        this.form[field] = value;
+      }
+    }
+    if (input.entryType && !this.autofilledFields.has('entryType')) {
+      this.form.entryType = input.entryType;
+      this.entryTypeDropdown?.setValue(input.entryType);
+    }
+
     // 4.1.3 — sync the visible inputs. applyAutofill only mutates `this.form`
     // state; without this round-trip the fields LOOK empty after a lookup
     // even though the data is applied (4.1.E smoke finding, 2026-09-27).
@@ -895,6 +984,11 @@ export class PaperImportModal extends Modal {
           authorFirstNames: firstNames,
           year,
           venue: this.form.venue.trim() || undefined,
+          volume: this.form.volume.trim() || undefined,
+          issue: this.form.issue.trim() || undefined,
+          pages: this.form.pages.trim() || undefined,
+          publisher: this.form.publisher.trim() || undefined,
+          entryType: (this.form.entryType || undefined) as Paper['entryType'],
           doi: this.form.doi.trim() || undefined,
           abstract: this.form.abstract.trim() || undefined,
           pdfPath: this.form.pdfPath.trim() || undefined,
@@ -921,6 +1015,11 @@ export class PaperImportModal extends Modal {
           authorFirstNames: firstNames,
           year,
           venue: this.form.venue.trim() || undefined,
+          volume: this.form.volume.trim() || undefined,
+          issue: this.form.issue.trim() || undefined,
+          pages: this.form.pages.trim() || undefined,
+          publisher: this.form.publisher.trim() || undefined,
+          entryType: (this.form.entryType || undefined) as Paper['entryType'],
           doi: this.form.doi.trim() || undefined,
           abstract: this.form.abstract.trim() || undefined,
           // Field renamed in 2.7.1 — `createManual` performs the copy itself;

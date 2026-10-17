@@ -359,4 +359,85 @@ describe('renderQuoteSection', () => {
     expect(out).not.toContain('\u00B7');
   });
 });
+// ---------------------------------------------------------------------------
+// D38 / 3.2 Citation excellence C0 — publication metadata round-trip
+// ---------------------------------------------------------------------------
+
+describe('publication metadata round-trip (D38)', () => {
+  it('toFrontmatter writes volume / issue / pages / publisher / entryType verbatim', () => {
+    const fm = toFrontmatter(makePaper({
+      volume: '30',
+      issue: '12',
+      pages: '5998-6008',
+      publisher: 'Curran Associates, Inc.',
+      entryType: 'article',
+    }));
+    expect(fm.volume).toBe('30');
+    expect(fm.issue).toBe('12');
+    expect(fm.pages).toBe('5998-6008');
+    expect(fm.publisher).toBe('Curran Associates, Inc.');
+    expect(fm.entryType).toBe('article');
+  });
+
+  it('toFrontmatter leaves all five absent when the paper has none (additive-only)', () => {
+    const fm = toFrontmatter(makePaper());
+    expect(fm.volume).toBeUndefined();
+    expect(fm.issue).toBeUndefined();
+    expect(fm.pages).toBeUndefined();
+    expect(fm.publisher).toBeUndefined();
+    expect(fm.entryType).toBeUndefined();
+  });
+
+  it('frontmatterToPaper reads all five back, coercing YAML scalars to strings', () => {
+    const paper = frontmatterToPaper(
+      {
+        volume: 30 as unknown as string,
+        issue: '12',
+        pages: '5998-6008',
+        publisher: 'Curran Associates, Inc.',
+        entryType: 'inproceedings',
+      },
+      'proj-1',
+      makeTFile(),
+    );
+    expect(paper.volume).toBe('30'); // YAML numeric volume → string
+    expect(paper.issue).toBe('12');
+    expect(paper.pages).toBe('5998-6008');
+    expect(paper.publisher).toBe('Curran Associates, Inc.');
+    expect(paper.entryType).toBe('inproceedings');
+  });
+
+  it('frontmatterToPaper rejects an out-of-vocabulary entryType instead of poisoning the export switch', () => {
+    const paper = frontmatterToPaper(
+      { entryType: '@miscellaneous-bogus' as unknown as Paper['entryType'] },
+      'proj-1',
+      makeTFile(),
+    );
+    expect(paper.entryType).toBeUndefined();
+  });
+
+  it('round-trips all five fields losslessly', () => {
+    const original = makePaper({
+      citekey: 'vaswani_2017_attention',
+      volume: '30',
+      issue: '12',
+      pages: '5998-6008',
+      publisher: 'Curran Associates, Inc.',
+      entryType: 'article',
+      dateModified: new Date(2024, 0, 20, 12, 30).getTime(),
+    });
+    const fm = toFrontmatter(original);
+    const restored = frontmatterToPaper(
+      { ...fm, dateModified: undefined, dateRead: undefined },
+      'proj-1',
+      makeTFile({ basename: original.citekey }),
+    );
+    expect(restored.volume).toBe(original.volume);
+    expect(restored.issue).toBe(original.issue);
+    expect(restored.pages).toBe(original.pages);
+    expect(restored.publisher).toBe(original.publisher);
+    expect(restored.entryType).toBe(original.entryType);
+  });
+});
+
 

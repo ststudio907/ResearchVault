@@ -34,6 +34,7 @@ export type {
   ReadingStatus,
   Priority,
   PaperSource,
+  PaperEntryType,
 } from './literature';
 
 /** Tuples used by UI dropdowns and validation. Kept in sync with the unions in `literature.ts`.
@@ -55,6 +56,16 @@ export const PRIORITIES: readonly Priority[] = [
   'low',
   'normal',
   'high',
+] as const;
+
+/** Entry-type vocabulary. Kept in sync with `PaperEntryType` in `literature.ts`. */
+export const PAPER_ENTRY_TYPES: readonly import('./literature').PaperEntryType[] = [
+  'article',
+  'inproceedings',
+  'book',
+  'incollection',
+  'thesis',
+  'misc',
 ] as const;
 
 /** Provenance values a Quote may carry. Kept in sync with `QuoteSource` in `literature.ts`. */

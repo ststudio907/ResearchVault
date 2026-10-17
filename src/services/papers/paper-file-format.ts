@@ -6,8 +6,8 @@
 // pure functions only, no vault access (see `docs/REFACTOR_CONTEXT.md`).
 
 import type { TFile } from 'obsidian';
-import type { Paper, PaperSource, Quote, ReadingStatus } from '../../types';
-import { READING_STATUSES } from '../../types';
+import type { Paper, PaperEntryType, PaperSource, Quote, ReadingStatus } from '../../types';
+import { PAPER_ENTRY_TYPES, READING_STATUSES } from '../../types';
 import { fromFrontmatterDate, toLocalDateTime } from '../../utils/format-date';
 import type { TemplateData } from '../../utils/template';
 
@@ -41,6 +41,13 @@ export type PaperFrontmatter = {
   authorFirstNames?: string[];
   year: number;
   venue?: string;
+  /** Publication metadata (D38 / 3.2 C0). All optional + additive. */
+  volume?: string;
+  issue?: string;
+  /** Page range like "123-145". */
+  pages?: string;
+  publisher?: string;
+  entryType?: PaperEntryType;
   doi?: string;
   url?: string;
   /** Open-access PDF URL (4.1.A) — only set by 4.1.B's provider responses. */
@@ -110,6 +117,12 @@ export function toFrontmatter(paper: Paper): PaperFrontmatter {
     authorFirstNames: paper.authorFirstNames,
     year: paper.year,
     venue: paper.venue,
+    // D38 publication metadata — undefined fields stay out of the YAML.
+    volume: paper.volume,
+    issue: paper.issue,
+    pages: paper.pages,
+    publisher: paper.publisher,
+    entryType: paper.entryType,
     doi: paper.doi,
     url: paper.url,
     oaUrl: paper.oaUrl,
@@ -181,6 +194,19 @@ export function frontmatterToPaper(
     })(),
     year: typeof fm.year === 'number' ? fm.year : new Date(file.stat.ctime).getFullYear(),
     venue: fm.venue,
+    // D38 publication metadata — plain-string fields pass through as-is;
+    // entryType is validated against the vocabulary so a stray YAML value
+    // can't poison the BibTeX export's switch.
+    volume: fm.volume !== undefined ? String(fm.volume) : undefined,
+    issue: fm.issue !== undefined ? String(fm.issue) : undefined,
+    pages: fm.pages !== undefined ? String(fm.pages) : undefined,
+    publisher: fm.publisher,
+    entryType: ((): PaperEntryType | undefined => {
+      const t = fm.entryType as unknown as string | undefined;
+      return t && (PAPER_ENTRY_TYPES as readonly string[]).includes(t)
+        ? (t as PaperEntryType)
+        : undefined;
+    })(),
     doi: fm.doi,
     url: fm.url,
     // 4.1.A: round-trip oaUrl if it was ever stamped; absent otherwise.

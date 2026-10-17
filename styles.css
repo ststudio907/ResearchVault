@@ -552,3 +552,16 @@
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ============================================================
+   3.2 C2 — citation markup rendering (reading view)
+   ============================================================ */
+
+.researchvault-citekey-link {
+  cursor: pointer;
+}
+
+.researchvault-citekey-link.is-unresolved {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

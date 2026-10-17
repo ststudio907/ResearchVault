@@ -5,7 +5,7 @@
 // stay the single source of truth for plugin-wide wiring.
 //
 
-import { Plugin, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+import { Editor, Plugin, Notice, TFile, WorkspaceLeaf } from 'obsidian';
 import type { Paper, QuoteSource } from '../types';
 import {
   ResearchVaultSettings,
@@ -14,6 +14,7 @@ import {
 import { ProjectManager } from '../services/project-manager';
 import { PaperService } from '../services/paper-service';
 import { VaultIndexer } from '../services/vault-indexer';
+import { BibliographyService } from '../services/citation/bibliography-service';
 import { CitationService } from '../services/citation/citation-service';
 import { ZoteroClient } from '../services/integrations/zotero/zotero-client';
 import { ZoteroLocalClient } from '../services/integrations/zotero/zotero-local-client';
@@ -22,6 +23,9 @@ import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
 import { PaperImportModal } from '../ui/modals/paper-import-modal';
 import { QuoteCaptureModal } from '../ui/modals/quote-capture-modal';
+import { CitationPickModal } from '../ui/modals/citation-pick-modal';
+import { registerCitationLinkProcessor } from '../ui/citation-link-renderer';
+import { formatCitationMarkup } from '../services/citation/citation-markup';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
 import { ProjectsSidebarView, VIEW_TYPE_RESEARCHVAULT_SIDEBAR } from '../ui/views/projects-sidebar-view';
 
@@ -43,6 +47,8 @@ export class ResearchVaultPlugin extends Plugin {
   projectManager!: ProjectManager;
   paperService!: PaperService;
   vaultIndexer!: VaultIndexer;
+  /** C1 (3.2 Citation excellence / D36): owns the per-project `bibliography.bib` rebuild. */
+  bibliographyService!: BibliographyService;
   eventBus!: EventBus;
   /**
    * 4.1.A: lazily constructed. `onload` does NOT instantiate it — the modal
@@ -62,7 +68,11 @@ export class ResearchVaultPlugin extends Plugin {
     new CreateProjectModal(this.app, this).open();
   }
 
-  /** Companion to the create modal; lets the user re-target the active project without going through settings. */
+  /**
+   * Project lifecycle hub (activate / create / delete). ID stays
+   * `switch-project` for command stability; the modal is titled
+   * "Manage projects" (2026-10-17 user-flagged consolidation).
+   */
   openSwitchProjectModal(): void {
     new SwitchProjectModal(this.app, this).open();
   }
@@ -74,6 +84,53 @@ export class ResearchVaultPlugin extends Plugin {
       return;
     }
     new PaperImportModal(this.app, this).open();
+  }
+
+  /**
+   * Rebuild `<active project>/bibliography.bib` (3.2 Citation excellence C1).
+   * Guards mirror `openAddPaperModal`: no active project / empty library get
+   * a Notice and no file on disk. The overwrite-guard-decline path returns
+   * quietly — the confirm modal already said its piece.
+   */
+  async exportActiveBibliography(): Promise<void> {
+    const active = this.projectManager.getActiveProject();
+    if (!active) {
+      new Notice('ResearchVault: activate a project before exporting a bibliography.');
+      return;
+    }
+    if (this.paperService.getInProject(active.id).length === 0) {
+      new Notice('ResearchVault: no papers in the active project to export.');
+      return;
+    }
+    try {
+      const result = await this.bibliographyService.exportProjectBibliography(active.id);
+      if (!result) return; // overwrite guard declined
+      new Notice(`ResearchVault: exported ${result.count} entries to ${result.path}.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`ResearchVault: bibliography export failed: ${message}`);
+    }
+  }
+
+  /**
+   * Insert `[@citekey]` at the cursor (3.2 Citation excellence C2 / D35).
+   * Guards mirror `openAddPaperModal`: no active project / empty library get
+   * a Notice and nothing is inserted.
+   */
+  openInsertCitationModal(editor: Editor): void {
+    const active = this.projectManager.getActiveProject();
+    if (!active) {
+      new Notice('ResearchVault: activate a project before inserting a citation.');
+      return;
+    }
+    const papers = this.paperService.getInProject(active.id);
+    if (papers.length === 0) {
+      new Notice('ResearchVault: no papers in the active project to cite.');
+      return;
+    }
+    new CitationPickModal(this.app, papers, (paper, form) => {
+      editor.replaceRange(formatCitationMarkup(paper.citekey, form), editor.getCursor());
+    }).open();
   }
 
   /** Open the quote-capture modal. Optionally pre-fill text from an editor selection or target a specific paper. */
@@ -146,6 +203,8 @@ export class ResearchVaultPlugin extends Plugin {
     this.projectManager.hydrate();
 
     this.paperService = new PaperService(this, this.projectManager);
+    // Trivial constructor (no disk I/O until export), safe to wire up front.
+    this.bibliographyService = new BibliographyService(this);
 
     // Indexer is built on top of `paperService`; the constructor is trivial,
     // so we create the instance up front and hydrate it once papers are
@@ -193,7 +252,7 @@ export class ResearchVaultPlugin extends Plugin {
 
     this.addCommand({
       id: 'switch-project',
-      name: 'Switch active project',
+      name: 'Manage projects',
       callback: () => this.openSwitchProjectModal(),
     });
 
@@ -204,11 +263,29 @@ export class ResearchVaultPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: 'export-bibliography',
+      name: 'Export bibliography (BibTeX)',
+      callback: () => {
+        void this.exportActiveBibliography();
+      },
+    });
+
+    this.addCommand({
       id: 'open-sidebar',
       name: 'Open sidebar',
       callback: () => {
         void this.openSidebar();
       },
+    });
+
+    // 3.2 C2 follow-up: render `[@citekey]` as a clickable link to the paper
+    // note in reading view (the markup itself stays inert for Pandoc).
+    registerCitationLinkProcessor(this);
+
+    this.addCommand({
+      id: 'insert-citation',
+      name: 'Insert citation',
+      editorCallback: (editor) => this.openInsertCitationModal(editor),
     });
 
     // Capture quote from editor selection. The `editorCallback` signature lets

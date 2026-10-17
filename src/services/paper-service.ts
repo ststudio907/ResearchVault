@@ -47,6 +47,13 @@ export interface PaperManualInput {
   authorFirstNames?: string[];
   year: number;
   venue?: string;
+  /** Publication metadata (D38 / 3.2 C0). Additive + purely optional. */
+  volume?: string;
+  issue?: string;
+  /** Page range like "123-145". */
+  pages?: string;
+  publisher?: string;
+  entryType?: Paper['entryType'];
   doi?: string;
   url?: string;
   /** Open-access PDF URL (4.1.A). Only set when 4.1.B's provider responses include it. */
@@ -285,6 +292,11 @@ export class PaperService {
         : undefined,
       year: input.year,
       venue: trimOrUndefined(input.venue),
+      volume: trimOrUndefined(input.volume),
+      issue: trimOrUndefined(input.issue),
+      pages: trimOrUndefined(input.pages),
+      publisher: trimOrUndefined(input.publisher),
+      entryType: input.entryType,
       doi: trimOrUndefined(input.doi),
       url: trimOrUndefined(input.url),
       // 4.1.A: only set when the provider returned a usable OA link.
@@ -803,6 +815,11 @@ function papersEqual(a: Paper, b: Paper): boolean {
     a.title === b.title &&
     a.year === b.year &&
     a.venue === b.venue &&
+    a.volume === b.volume &&
+    a.issue === b.issue &&
+    a.pages === b.pages &&
+    a.publisher === b.publisher &&
+    a.entryType === b.entryType &&
     a.doi === b.doi &&
     a.url === b.url &&
     a.pdfPath === b.pdfPath &&

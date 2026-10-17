@@ -163,6 +163,10 @@ export function migrateSettings(raw: unknown): ResearchVaultSettings {
     // is a spread-merge, not a versioned switch). Older payloads that pre-date
     // 4.1.A simply get a fresh `DEFAULT_CITATION_SETTINGS` block stamped in.
     citation: { ...DEFAULT_CITATION_SETTINGS, ...(candidate.citation ?? {}) },
+    // 5.4 audit: the Zotero block was never default-filled here — a payload
+    // saved by an older build that persisted only part of the shape would
+    // load with `undefined` holes. Merge like the other nested blocks.
+    zotero: { ...DEFAULT_ZOTERO_SETTINGS, ...(candidate.zotero ?? {}) },
     filterPanel: {
       ...DEFAULT_FILTER_PANEL,
       ...((candidate.filterPanel ?? {}) as Partial<FilterPanelState>),

@@ -10,7 +10,6 @@
 
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
-import { CITATION_STYLES } from '../../types';
 import {
   DEFAULT_PDF_LIBRARY_FOLDER,
   normalizePdfLibraryFolder,
@@ -42,19 +41,11 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
   // -------------------------------------------------------------------------
 
   private renderGeneral(root: HTMLElement): void {
-    ;
-
-    new Setting(root)
-      .setName('Default citation style')
-      .setDesc('Style applied to new projects unless they override it.')
-      .addDropdown((dropdown) => {
-        for (const style of CITATION_STYLES) dropdown.addOption(style, style);
-        dropdown.setValue(this.rv.settings.globalCitationStyle);
-        dropdown.onChange(async (value) => {
-          this.rv.settings.globalCitationStyle = value as typeof this.rv.settings.globalCitationStyle;
-          await this.rv.saveSettings();
-        });
-      });
+    // 5.4 audit (D37 posture): the "Default citation style" dropdown was inert —
+    // nothing reads `globalCitationStyle` / `project.settings.citationStyle`
+    // until the 1.1 Cite & ship export flow, and D39 locks style selection to
+    // export time, never at insert/create. The schema field stays so persisted
+    // payloads keep loading; re-introduce the control with the export command.
 
     new Setting(root)
       .setName('Default excluded folders')
@@ -162,7 +153,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
     new Setting(root).setName("Citation lookup").setHeading();
     root.createEl('p', {
       text:
-        'Lookups send only the doi or search string. We do not send your vault contents, file names, or paper notes. No analytics. API responses are cached locally for 30 days.',
+        'Lookups send only the DOI or search string. We do not send your vault contents, file names, or paper notes. No analytics. API responses are cached locally (30 days by default).',
       cls: 'setting-item-description',
     });
 
@@ -178,10 +169,10 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     new Setting(root)
       .setName('Preferred provider')
-      .setDesc('Crossref is the canonical doi registry. Openalex covers a wider corpus.')
+      .setDesc('Crossref is the canonical DOI registry. OpenAlex covers a wider corpus.')
       .addDropdown((dropdown) => {
         dropdown.addOption('crossref', 'Crossref');
-        dropdown.addOption('openalex', 'Openalex');
+        dropdown.addOption('openalex', 'OpenAlex');
         dropdown.setValue(this.rv.settings.citation.preferredProvider);
         dropdown.onChange(async (value) => {
           this.rv.settings.citation.preferredProvider = value as typeof this.rv.settings.citation.preferredProvider;
@@ -191,19 +182,22 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     new Setting(root)
       .setName('Polite contact')
-      .setDesc('Optional mailto: for polite pool. Leave empty to stay anonymous (slower). Non-empty = faster.')
+      .setDesc(
+        'Optional contact email, sent to your lookup provider to join its polite ' +
+          'pool. Leave empty to stay anonymous; anonymous requests are throttled more.',
+      )
       .addText((text) => {
         text.setPlaceholder('you@example.com');
         text.setValue(this.rv.settings.citation.politeContact);
         text.onChange(async (value) => {
-          this.rv.settings.citation.politeContact = value;
+          this.rv.settings.citation.politeContact = value.trim();
           await this.rv.saveSettings();
         });
       });
 
     new Setting(root)
-      .setName('Cache ttl (days)')
-      .setDesc('In-memory lru cache entry lifetime. Default 30.')
+      .setName('Cache TTL (days)')
+      .setDesc('In-memory LRU cache entry lifetime. Default 30.')
       .addText((text) => {
         text.inputEl.type = 'number';
         text.setValue(String(this.rv.settings.citation.cacheTtlDays));
@@ -218,7 +212,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
 
     new Setting(root)
       .setName('Cache max entries')
-      .setDesc('Maximum number of entries in the lru cache. Default 500.')
+      .setDesc('Maximum number of entries in the LRU cache. Default 500.')
       .addText((text) => {
         text.inputEl.type = 'number';
         text.setValue(String(this.rv.settings.citation.cacheMaxEntries));
@@ -263,7 +257,7 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
   }
 
   // -------------------------------------------------------------------------
-  // AI
+  // Zotero
   // -------------------------------------------------------------------------
 
   /**
@@ -366,16 +360,21 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
   // -------------------------------------------------------------------------
 
   private renderTemplates(root: HTMLElement): void {
-    new Setting(root).setName("Templates").setHeading();
+    new Setting(root).setName('Templates').setHeading();
     root.createEl('p', {
-      text: 'Templates are wired into the paper and note flows in sprint 2. Edit them here today so they are ready.',
+      text:
+        'Applied to new paper and note files as they are created; existing ' +
+        'files are never rewritten.',
       cls: 'setting-item-description',
     });
 
+    // 5.4 audit: `templates.dailyNote` has no runtime consumer — the textarea
+    // was an inert control, so it stays hidden until a daily-note flow reads
+    // it (D37 posture, same as the hidden AI section). The schema field stays
+    // in the defaults so persisted payloads keep round-tripping.
     const templates: Array<[keyof typeof this.rv.settings.templates, string]> = [
       ['paper', 'Paper template'],
       ['note', 'Note template'],
-      ['dailyNote', 'Daily note template'],
     ];
     for (const [key, label] of templates) {
       new Setting(root)

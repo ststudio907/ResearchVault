@@ -14,6 +14,13 @@ import type {
 export interface ResearchVaultEvents {
   /** Emitted when any project's creation, update, or activation happens. */
   projectChanged: Project;
+  /**
+   * Emitted when the *set* of projects changes shape (today: any deletion,
+   * including the last project). `projectChanged` only fires on delete when a
+   * fallback project remains — this event always fires so views can drop a
+   * stale "ghost" project name when the library becomes empty.
+   */
+  projectsChanged: { projects: Project[] };
   /** Emitted when per-project stats are recomputed (handy for sidebar refreshes). */
   projectStatsUpdated: ProjectStats & { projectId: string };
   /** Emitted when a paper is imported or its file is created on disk. */
