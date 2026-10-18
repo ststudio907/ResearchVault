@@ -5,7 +5,7 @@
 // stay the single source of truth for plugin-wide wiring.
 //
 
-import { Editor, Plugin, Notice, TFile, WorkspaceLeaf } from 'obsidian';
+import { Editor, Plugin, Notice, TFile } from 'obsidian';
 import type { Paper, QuoteSource } from '../types';
 import {
   ResearchVaultSettings,
@@ -28,6 +28,7 @@ import { registerCitationLinkProcessor } from '../ui/citation-link-renderer';
 import { formatCitationMarkup } from '../services/citation/citation-markup';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
 import { ProjectsSidebarView, VIEW_TYPE_RESEARCHVAULT_SIDEBAR } from '../ui/views/projects-sidebar-view';
+import { openSidebar } from '../ui/views/open-sidebar';
 
 /**
  * Typed wrapper around the raw `Map<eventName, EventEmitter>`. Centralising
@@ -164,14 +165,7 @@ export class ResearchVaultPlugin extends Plugin {
    * field is deprecated, so we avoid it.
    */
   async openSidebar(): Promise<void> {
-    const { workspace } = this.app;
-    const existing = workspace.getLeavesOfType(VIEW_TYPE_RESEARCHVAULT_SIDEBAR)[0];
-    if (existing) {
-      await existing.setViewState({ type: VIEW_TYPE_RESEARCHVAULT_SIDEBAR, active: true });
-      return;
-    }
-    const leaf: WorkspaceLeaf = workspace.getRightLeaf(false) ?? workspace.getLeaf('split');
-    await leaf.setViewState({ type: VIEW_TYPE_RESEARCHVAULT_SIDEBAR, active: true });
+    await openSidebar(this.app.workspace, VIEW_TYPE_RESEARCHVAULT_SIDEBAR);
   }
 
   async onload(): Promise<void> {
@@ -239,7 +233,7 @@ export class ResearchVaultPlugin extends Plugin {
       (leaf) => new ProjectsSidebarView(leaf, this),
     );
 
-    this.addRibbonIcon('library', 'Open researchvault sidebar', () => {
+    this.addRibbonIcon('library', 'Open ResearchVault sidebar', () => {
       // Fire-and-forget: errors surface via the view's own error handling.
       void this.openSidebar();
     });

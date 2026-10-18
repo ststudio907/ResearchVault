@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { TFile } from 'obsidian';
 import type { Paper, Quote } from '../src/types';
 import {
+  type PaperFrontmatter,
   DEFAULT_PAPER_TEMPLATE,
   frontmatterToPaper,
   normaliseAuthorName,
@@ -94,8 +95,11 @@ describe('toFrontmatter', () => {
   it('writes dateRead as a local-tz string when set', () => {
     const fm = toFrontmatter(makePaper({ dateRead: new Date(2024, 2, 1, 9, 5).getTime() }));
     expect(fm.dateRead).toBe('2024-03-01 | 09:05');
+  });
+});
+
 describe('frontmatterToPaper', () => {
-  const fm = {
+  const fm: Partial<PaperFrontmatter> = {
     citekey: 'vaswani_2017_attention',
     title: 'Attention Is All You Need',
     authors: ['Vaswani', 'Shazeer'],
@@ -159,14 +163,15 @@ describe('frontmatterToPaper', () => {
         { firstName: '', lastName: 'Smith' },
       ],
     };
-    const paper = frontmatterToPaper(legacy, 'proj-1', makeTFile());
+    // Deliberately exercise the pre-parallel-array disk schema.
+    const paper = frontmatterToPaper(legacy as unknown as Partial<PaperFrontmatter>, 'proj-1', makeTFile());
     expect(paper.authors).toEqual(['McGlynn', 'Smith']);
     expect(paper.authorFirstNames).toEqual(['Terry', '']);
   });
 
   it('leaves authorFirstNames undefined when the legacy rows have no first names', () => {
     const paper = frontmatterToPaper(
-      { citekey: 'k', authors: [{ lastName: 'Solo' }] },
+      { citekey: 'k', authors: [{ lastName: 'Solo' }] } as unknown as Partial<PaperFrontmatter>,
       'proj-1',
       makeTFile(),
     );
@@ -199,9 +204,6 @@ describe('frontmatterToPaper', () => {
   it('parses a valid dateRead', () => {
     const paper = frontmatterToPaper({ citekey: 'k', dateRead: '2024-03-01 | 09:05' }, 'o', makeTFile());
     expect(paper.dateRead).toBe(new Date(2024, 2, 1, 9, 5).getTime());
-  });
-});
-
   });
 });
 
@@ -330,12 +332,13 @@ describe('upsertAttachedPdfSection', () => {
 });
 
 describe('renderQuoteSection', () => {
-  const base = {
+  const base: Quote = {
     id: 'q-1',
     text: 'Line one.\nLine two.',
     tags: ['#tag1', '#tag2'],
-    source: 'selection',
-  } as Quote;
+    source: 'editor',
+    createdAt: 0,
+  };
 
   it('prefixes every text line with "> "', () => {
     const out = renderQuoteSection(base);
@@ -350,7 +353,7 @@ describe('renderQuoteSection', () => {
   it('renders tags and source lines', () => {
     const out = renderQuoteSection(base);
     expect(out).toContain('#tags: #tag1 #tag2');
-    expect(out).toContain('-- source: selection');
+    expect(out).toContain('-- source: editor');
   });
 
   it('omits the meta line when neither page nor section is set', () => {

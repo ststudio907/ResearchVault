@@ -29,7 +29,7 @@ describe('findCitationMatches', () => {
   it('matches multi-key groups separated by semicolons', () => {
     const matches = findCitationMatches('see [@a2019; @b2020-paper]');
     expect(matches).toHaveLength(1);
-    expect(matches[0].block).toBe('[@a2019; @b2020-paper]');
+    expect(matches[0]?.block).toBe('[@a2019; @b2020-paper]');
   });
 
   it('finds multiple disjoint blocks in one text', () => {
@@ -37,7 +37,7 @@ describe('findCitationMatches', () => {
     const matches = findCitationMatches(text);
     expect(matches).toHaveLength(2);
     expect(matches[0]).toMatchObject({ start: 0, end: 8 });
-    expect(matches[1].start).toBe(19);
+    expect(matches[1]?.start).toBe(19);
   });
 
   it('ignores non-citation bracket prose', () => {
@@ -67,7 +67,7 @@ describe('findCitationMatches', () => {
   it('does not double-match keys already inside a bracketed block', () => {
     const matches = findCitationMatches('[@a2019; @b2020-paper] and @c2021 inline');
     expect(matches).toHaveLength(2);
-    expect(matches[0].block).toBe('[@a2019; @b2020-paper]');
+    expect(matches[0]?.block).toBe('[@a2019; @b2020-paper]');
     expect(matches[1]).toMatchObject({ block: '@c2021', start: 27 });
   });
 
@@ -82,7 +82,7 @@ describe('findCitationMatches', () => {
     // bracketed block.
     const matches = findCitationMatches('see [[@notcitation]]');
     expect(matches).toHaveLength(1);
-    expect(matches[0].block).toBe('[@notcitation]');
+    expect(matches[0]?.block).toBe('[@notcitation]');
   });
 
   it('treats plain @handle prose as an unresolved candidate by design', () => {
@@ -90,7 +90,7 @@ describe('findCitationMatches', () => {
     // matching here is honest rather than noisy. Locked in intentionally.
     const matches = findCitationMatches('Ping @someone about it');
     expect(matches).toHaveLength(1);
-    expect(matches[0].block).toBe('@someone');
+    expect(matches[0]?.block).toBe('@someone');
   });
 });
 
