@@ -10,6 +10,7 @@ import { TFile, TFolder, normalizePath } from 'obsidian';
 import type { Project, ProjectCreateConfig, ProjectStats, Paper, PaperSource, ReadingStatus } from '../types';
 import { READING_STATUSES } from '../types';
 import { newId } from '../utils/uuid';
+import { slugify } from '../utils/citekey';
 import type { ResearchVaultPlugin } from '../core/plugin';
 
 export type { Project, ProjectCreateConfig };
@@ -237,6 +238,17 @@ export class ProjectManager {
   getProjectSynthesesFolder(projectId: string): string {
     const project = this.requireProject(projectId);
     return joinPath(project.folderPath, 'syntheses');
+  }
+
+  /**
+   * Canonical path of a project's hub note (1.1 Slice 2a): the project's own
+   * name, slugified, at the project root — the MoC-style center note. Does
+   * not touch the disk; `SynthesisService.ensureHub` materializes it on
+   * demand.
+   */
+  getProjectHubPath(projectId: string): string {
+    const project = this.requireProject(projectId);
+    return joinPath(project.folderPath, `${slugify(project.name) || 'project'}.md`);
   }
 
   /**

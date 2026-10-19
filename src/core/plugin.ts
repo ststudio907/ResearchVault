@@ -157,6 +157,61 @@ export class ResearchVaultPlugin extends Plugin {
   }
 
   /**
+   * Open (creating on demand) the active project's hub note — the project's
+   * center note where evidence accumulates (1.1 Slice 2a). Errors surface
+   * as a Notice, including `ensureHub`'s not-a-synthesis-file guard.
+   */
+  async openProjectHub(): Promise<void> {
+    const active = this.projectManager.getActiveProject();
+    if (!active) {
+      new Notice('ResearchVault: activate a project before opening its hub.');
+      return;
+    }
+    try {
+      const hub = await this.synthesisService.ensureHub(active.id);
+      await this.openNoteAt(hub.path);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`ResearchVault: could not open the project hub: ${message}`);
+    }
+  }
+
+  /**
+   * Re-flag the targeted synthesis note (see `resolveSynthesisTarget`) as
+   * the project's hub. The file stays where it is; only `hub: true` is
+   * written, so hand-written prose outside the known sections is untouched.
+   */
+  async promoteActiveSynthesisToHub(): Promise<void> {
+    const target = this.resolveSynthesisTarget();
+    if (!target) {
+      new Notice(
+        'ResearchVault: open a synthesis note first (or keep exactly one in the active project).',
+      );
+      return;
+    }
+    if (this.synthesisService.getById(target.id)?.hub) {
+      new Notice('ResearchVault: that note is already the project hub.');
+      return;
+    }
+    try {
+      await this.synthesisService.promoteToHub(target.id);
+      new Notice(`ResearchVault: "${target.title}" is now the project hub.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`ResearchVault: could not promote the note: ${message}`);
+    }
+  }
+
+  /** Open a vault markdown file in the active leaf; throws if the path is gone. */
+  private async openNoteAt(path: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) {
+      throw new Error(`note not found at "${path}".`);
+    }
+    await this.app.workspace.getLeaf(false).openFile(file);
+  }
+
+  /**
    * Rebuild `<active project>/bibliography.bib` (3.2 Citation excellence C1).
    * Guards mirror `openAddPaperModal`: no active project / empty library get
    * a Notice and no file on disk. The overwrite-guard-decline path returns
@@ -350,6 +405,24 @@ export class ResearchVaultPlugin extends Plugin {
       id: 'remove-evidence',
       name: 'Remove evidence from synthesis note',
       callback: () => this.openRemoveEvidenceModal(),
+    });
+
+    // 1.1 Slice 2a: project-hub commands. The sidebar buttons planned for
+    // 2b call the same methods, so the palette keeps parity by default.
+    this.addCommand({
+      id: 'open-hub',
+      name: 'Open project hub',
+      callback: () => {
+        void this.openProjectHub();
+      },
+    });
+
+    this.addCommand({
+      id: 'promote-to-hub',
+      name: 'Promote synthesis note to project hub',
+      callback: () => {
+        void this.promoteActiveSynthesisToHub();
+      },
     });
 
     this.addCommand({

@@ -164,5 +164,37 @@ describe('full-note round-trip', () => {
   });
 });
 
+describe('hub flag round-trip (2a)', () => {
+  const base: SynthesisNote = {
+    id: 'syn-1',
+    projectId: 'p-1',
+    title: 'Project hub',
+    evidence: [],
+    openQuestions: [],
+    path: 'proj/project.md',
+    dateAdded: new Date(2026, 9, 19, 10, 0).getTime(),
+    hub: true,
+  };
+
+  it('writes hub: true on hub notes and round-trips it', () => {
+    const content = joinFrontmatter(toSynthesisFrontmatter(base), renderSynthesisBody(base));
+    expect(content).toContain('hub: true');
+
+    const { frontmatter, body } = splitFrontmatter(content);
+    const back = frontmatterToSynthesis(frontmatter, body, base.path, 0);
+    expect(back?.hub).toBe(true);
+  });
+
+  it('omits the key for ordinary notes and reads them back as hub: false', () => {
+    const ordinary = { ...base, hub: undefined };
+    const content = joinFrontmatter(toSynthesisFrontmatter(ordinary), renderSynthesisBody(ordinary));
+    expect(content).not.toContain('hub:');
+
+    const { frontmatter, body } = splitFrontmatter(content);
+    const back = frontmatterToSynthesis(frontmatter, body, ordinary.path, 0);
+    expect(back?.hub).toBe(false);
+  });
+});
+
 
 

@@ -2,7 +2,8 @@
 //
 // Synthesis notes (1.1 Slice 1): one claim (the thesis) with evidence blocks
 // arranged around it — each block a (source citekey, locator, stance) triple.
-// Notes live at `<project>/syntheses/<slug>.md`; the body is canonical and
+// Free-standing synthesis notes live at `<project>/syntheses/<slug>.md`;
+// the body is canonical and
 // evidence blocks are re-anchored via invisible `<!-- ev:<id> -->` comments
 // (see `services/synthesis/synthesis-file-format.ts`).
 //
@@ -85,6 +86,19 @@ export class SynthesisService {
         if (note) this.indexNote(note);
       }
     }
+
+    // 2a: the project hub lives at the project root (outside `syntheses/`),
+    // so it needs its own hydration pass. A promoted-in-place hub inside
+    // `syntheses/` was already picked up above; this finds the rest.
+    for (const project of this.plugin.settings.projects) {
+      const hubFile = this.plugin.app.vault.getAbstractFileByPath(
+        this.projectManager.getProjectHubPath(project.id),
+      );
+      if (hubFile instanceof TFile) {
+        const note = await this.readSynthesisFile(hubFile);
+        if (note) this.indexNote(note);
+      }
+    }
   }
 
   /** Cancel pending debounced syncs. Called from `plugin.onunload`. */
@@ -117,6 +131,15 @@ export class SynthesisService {
   getByPath(filePath: string): SynthesisNote | undefined {
     const id = this.pathToId.get(normalizePath(filePath).toLowerCase());
     return id ? this.byId.get(id) : undefined;
+  }
+
+  /**
+   * The project's hub note, if one exists in the index (1.1 Slice 2a). The
+   * hub is an ordinary synthesis note with the `hub` flag, marked up by
+   * `ensureHub` / `promoteToHub`.
+   */
+  getHub(projectId: string): SynthesisNote | undefined {
+    return this.getInProject(projectId).find((n) => n.hub);
   }
 
   // -------------------------------------------------------------------------
@@ -162,6 +185,86 @@ export class SynthesisService {
     this.indexNote(note);
     this.plugin.eventBus.emit('synthesisCreated', note);
     return note;
+  }
+
+  /**
+   * Return the project's hub note, creating it on demand (1.1 Slice 2a).
+   * The hub materializes at `getProjectHubPath` (the slugified project name
+   * at the project root) with the standard synthesis skeleton.
+   *
+   * If a file already occupies the hub path we adopt it only when it parses
+   * as a synthesis note of this project (the user may have moved one there
+   * by hand); anything else is the user's own note and is never clobbered —
+   * the caller surfaces the error.
+   */
+  async ensureHub(projectId: string): Promise<SynthesisNote> {
+    const existing = this.getHub(projectId);
+    if (existing) return existing;
+
+    const project = this.projectManager.getProjectById(projectId);
+    if (!project) {
+      throw new Error(`SynthesisService.ensureHub: project "${projectId}" not found.`);
+    }
+    const hubPath = this.projectManager.getProjectHubPath(projectId);
+
+    const occupant = this.plugin.app.vault.getAbstractFileByPath(hubPath);
+    if (occupant instanceof TFile) {
+      const parsed = await this.readSynthesisFile(occupant);
+      if (parsed && parsed.projectId === projectId) {
+        this.indexNote(parsed);
+        return this.promoteToHub(parsed.id);
+      }
+      throw new Error(
+        `SynthesisService.ensureHub: "${hubPath}" exists and is not a synthesis note of this project — move or rename that file before opening the hub.`,
+      );
+    }
+
+    const note: SynthesisNote = {
+      id: newId(),
+      projectId,
+      title: project.name,
+      evidence: [],
+      openQuestions: [],
+      path: hubPath,
+      dateAdded: Date.now(),
+      hub: true,
+    };
+    const content = joinFrontmatter(toSynthesisFrontmatter(note), renderSynthesisBody(note));
+    await this.plugin.app.vault.create(hubPath, content);
+
+    this.indexNote(note);
+    this.plugin.eventBus.emit('synthesisCreated', note);
+    return note;
+  }
+
+  /**
+   * Mark an existing synthesis note as the project's hub (1.1 Slice 2a).
+   * The file stays where it is — only the frontmatter gains `hub: true` —
+   * so hand-written prose outside the known sections is untouched (the body
+   * is canonical). Follows the staged-write contract: index + event only on
+   * a successful disk write.
+   */
+  async promoteToHub(synthesisId: string): Promise<SynthesisNote> {
+    const current = this.requireById(synthesisId);
+    if (current.hub) return current;
+
+    const next: SynthesisNote = { ...current, hub: true };
+    const file = this.findNoteFile(current);
+    if (!file) {
+      throw new Error(
+        `SynthesisService: note file for "${current.title}" is missing at "${current.path}".`,
+      );
+    }
+
+    await this.selfAwareProcess(file, (existing) => {
+      const { frontmatter, body } = splitFrontmatter(existing);
+      // Frontmatter-only edit — never re-render the body here.
+      return joinFrontmatter({ ...frontmatter, hub: true }, body);
+    });
+
+    this.indexNote(next);
+    this.plugin.eventBus.emit('synthesisUpdated', next);
+    return next;
   }
 
   /** `slug`, `slug-2`, `slug-3`, … until the path is free on disk and in the index. */
@@ -373,12 +476,18 @@ export class SynthesisService {
     return abstract instanceof TFile ? abstract : null;
   }
 
-  /** Which project (if any) owns this path, via each project's `syntheses/` folder. */
+  /**
+   * Which project (if any) owns this path: a note under the project's
+   * `syntheses/` folder, or the project's hub note at the project root
+   * (1.1 Slice 2a).
+   */
   private findOwnerProject(filePath: string): string | undefined {
     for (const project of this.plugin.settings.projects) {
       const folder = this.projectManager.getProjectSynthesesFolder(project.id);
-      if (!folder) continue;
-      if (filePath === folder || filePath.startsWith(`${folder}/`)) {
+      if (folder && (filePath === folder || filePath.startsWith(`${folder}/`))) {
+        return project.id;
+      }
+      if (this.projectManager.getProjectHubPath(project.id) === normalizePath(filePath)) {
         return project.id;
       }
     }

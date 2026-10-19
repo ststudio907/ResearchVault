@@ -48,6 +48,12 @@ export interface SynthesisNote {
   /** Canonical vault path of the note file. */
   path: string;
   dateAdded: number;
+  /**
+   * True for the project's single hub note (1.1 Slice 2a) — the project's
+   * center note where evidence accumulates. Not persisted as `false`;
+   * `undefined` means an ordinary, free-standing synthesis note.
+   */
+  hub?: boolean;
 }
 
 export interface LiteratureNote {

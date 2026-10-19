@@ -37,6 +37,8 @@ export interface SynthesisFrontmatter extends Record<string, unknown> {
   sources: string[];
   /** Local-tz `YYYY-MM-DD | HH:MM` string per the 2.8.C writer. Epoch ms in memory. */
   dateAdded: string;
+  /** Present (`true`) only on the project's hub note (1.1 Slice 2a). */
+  hub?: boolean;
 }
 
 function isEvidenceStance(value: unknown): value is import('../../types').EvidenceStance {
@@ -56,6 +58,9 @@ export function toSynthesisFrontmatter(note: SynthesisNote): SynthesisFrontmatte
     title: note.title,
     sources,
     dateAdded: toLocalDateTime(note.dateAdded),
+    // Omitted for ordinary notes so frontmatter stays minimal; writing
+    // `hub: false` on every synthesis note would be noise.
+    ...(note.hub ? { hub: true } : {}),
   };
 }
 
@@ -85,6 +90,7 @@ export function frontmatterToSynthesis(
     openQuestions: parseOpenQuestions(body),
     path: filePath,
     dateAdded: fromFrontmatterDate(frontmatter.dateAdded, fallbackDate),
+    hub: frontmatter.hub === true,
   };
 }
 
