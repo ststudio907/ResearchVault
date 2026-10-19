@@ -420,7 +420,17 @@ export class PaperService {
   // Quotes
   // -------------------------------------------------------------------------
 
-  /** Append a quote to the paper's in-memory list and to the on-disk body. */
+  /**
+   * Append a quote to the paper's note body and, once the write succeeds, to
+   * the in-memory index.
+   *
+   * Reliability fix (Slice 0): the quote is staged first and the indexed
+   * paper is only replaced after the disk write succeeds — previously the
+   * in-memory list was mutated *before* persisting, so a failed write left
+   * sidebar/index memory diverged from disk until the next reload. On
+   * success `quoteAdded` (indexer) and `paperUpdated` (sidebar) are emitted;
+   * the indexer handles both idempotently, so the double upsert is harmless.
+   */
   async addQuote(paperId: string, quote: Omit<Quote, 'id'>): Promise<Quote> {
     const paper = this.requireById(paperId);
     const storedQuote: Quote = {
@@ -430,7 +440,7 @@ export class PaperService {
       createdAt: quote.createdAt ?? Date.now(),
       source: quote.source ?? 'editor',
     };
-    paper.quotes.push(storedQuote);
+    const next: Paper = { ...paper, quotes: [...paper.quotes, storedQuote] };
 
     const file = this.findPaperFile(paper);
     if (file) {
@@ -439,10 +449,27 @@ export class PaperService {
         const { body } = splitFrontmatter(existing);
         const heading = body.includes('## Quotes') ? '' : '## Quotes\n\n';
         const nextBody = `${body.trimEnd()}\n\n${heading}${section}`;
-        return joinFrontmatter(toFrontmatter(paper), nextBody);
+        return joinFrontmatter(toFrontmatter(next), nextBody);
       });
+    } else {
+      // No note on disk yet — materialize it at the canonical location so the
+      // quote is durable. (Previously the quote lived only in the in-memory
+      // index in this case and silently vanished on the next reload.)
+      const folder = papersFolderOf(paper);
+      if (!folder) {
+        throw new Error(
+          `PaperService: cannot persist quote for "${paper.citekey}" because no papersFolder is recorded in customFields.`,
+        );
+      }
+      const path = normalizePath(`${folder}/${paper.citekey}.md`);
+      const body = `## Quotes\n\n${renderQuoteSection(storedQuote)}`;
+      await this.plugin.app.vault.create(path, joinFrontmatter(toFrontmatter(next), body));
     }
 
+    // Success only: commit to the index and notify subscribers.
+    this.indexPaper(next);
+    this.plugin.eventBus.emit('quoteAdded', { paper: next, quote: storedQuote });
+    this.plugin.eventBus.emit('paperUpdated', next);
     return storedQuote;
   }
 

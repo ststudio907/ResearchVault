@@ -1,5 +1,55 @@
 // src/types/notes.ts
 
+/**
+ * How a piece of evidence relates to the synthesis's thesis. Same three-way
+ * union `ConceptClaim.stance` uses — now shared as {@link EvidenceStance}.
+ */
+export type EvidenceStance = 'supports' | 'contradicts' | 'neutral';
+
+/**
+ * One anchored piece of evidence inside a synthesis note: which paper it
+ * came from (`citekey`), where in that paper (`locator` — page range,
+ * section, figure…), and how it bears on the thesis (`stance`).
+ *
+ * `quoteId` links the block back to a captured `Quote` when the evidence was
+ * promoted from one; it is optional because evidence may also be written
+ * fresh. The `text` is the quoted/paraphrased passage — self-contained, so
+ * a synthesis note stays readable even if the source paper moves projects.
+ */
+export interface EvidenceBlock {
+  id: string;
+  /** Citekey of the source paper (unique within the synthesis's project). */
+  citekey: string;
+  /** Quote this evidence was promoted from, when applicable. */
+  quoteId?: string;
+  /** The quoted or paraphrased passage. */
+  text: string;
+  /** Page/section/figure locator as a free string (e.g. "42", "42-43", "§3.2"). */
+  locator?: string;
+  stance: EvidenceStance;
+  createdAt: number;
+}
+
+/**
+ * A synthesis note: one claim (the thesis) with the evidence arranged around
+ * it. Lives at `<project>/syntheses/<slug>.md`; the body is canonical —
+ * evidence blocks are rendered into the `## Evidence` section with invisible
+ * `<!-- ev:<id> -->` anchors and parsed back on hydration, so user edits to
+ * quote text survive reloads.
+ */
+export interface SynthesisNote {
+  id: string; // UUID
+  projectId: string;
+  title: string;
+  /** The claim the evidence is arranged around. Empty until the user writes one. */
+  thesis?: string;
+  evidence: EvidenceBlock[];
+  openQuestions: string[];
+  /** Canonical vault path of the note file. */
+  path: string;
+  dateAdded: number;
+}
+
 export interface LiteratureNote {
   paperId: string;
   paperCitekey: string;
@@ -45,6 +95,6 @@ export interface ConceptNote {
 export interface ConceptClaim {
   paperId: string;
   claimId: string;
-  stance: 'supports' | 'contradicts' | 'neutral';
+  stance: EvidenceStance;
   evidence: string;
 }

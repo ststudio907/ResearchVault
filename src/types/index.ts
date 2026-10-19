@@ -75,8 +75,19 @@ export const QUOTE_SOURCES: readonly QuoteSource[] = [
   'manual',
 ] as const;
 
+/** Stances an EvidenceBlock may take toward a synthesis thesis (1.1 Slice 1).
+ *  Kept in sync with `EvidenceStance` in `notes.ts` (shared with `ConceptClaim`). */
+export const EVIDENCE_STANCES: readonly import('./notes').EvidenceStance[] = [
+  'supports',
+  'contradicts',
+  'neutral',
+] as const;
+
 // ----- Notes -----
 export type {
+  EvidenceStance,
+  EvidenceBlock,
+  SynthesisNote,
   LiteratureNote,
   AtomicNote,
   ConceptNote,

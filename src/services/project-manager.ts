@@ -24,6 +24,8 @@ export interface ProjectFolders {
   papers: string;
   notes: string;
   literature: string;
+  /** Synthesis notes (1.1 Slice 1). Ensured lazily for projects that predate it. */
+  syntheses: string;
 }
 
 /** Join two vault path segments with Obsidian's `normalizePath` so slashes and slugs are handled the plugin-wide way. */
@@ -113,6 +115,7 @@ export class ProjectManager {
     await this.ensureFolder(joinPath(folderPath, 'papers'));
     await this.ensureFolder(joinPath(folderPath, 'notes'));
     await this.ensureFolder(joinPath(folderPath, 'literature'));
+    await this.ensureFolder(joinPath(folderPath, 'syntheses'));
 
     const now = Date.now();
     const project: Project = {
@@ -227,6 +230,16 @@ export class ProjectManager {
   }
 
   /**
+   * Return a fully-normalized path to the standard `syntheses/` subfolder for
+   * a project (1.1 Slice 1). Does not touch the disk; `SynthesisService`
+   * ensures it lazily via `ensureProjectFolders`.
+   */
+  getProjectSynthesesFolder(projectId: string): string {
+    const project = this.requireProject(projectId);
+    return joinPath(project.folderPath, 'syntheses');
+  }
+
+  /**
    * Create the standard subfolder layout for a project. Idempotent — existing
    * folders are left alone. Used by `PaperService` before it writes its first
    * paper note, and exposed so future modals can rely on the layout existing.
@@ -240,10 +253,12 @@ export class ProjectManager {
       papers: joinPath(root, 'papers'),
       notes: joinPath(root, 'notes'),
       literature: joinPath(root, 'literature'),
+      syntheses: joinPath(root, 'syntheses'),
     };
     await this.ensureFolder(folders.papers);
     await this.ensureFolder(folders.notes);
     await this.ensureFolder(folders.literature);
+    await this.ensureFolder(folders.syntheses);
     return folders;
   }
 
@@ -262,9 +277,10 @@ export class ProjectManager {
   }
 
   /**
-   * Recompute `ProjectStats`. The count of papers is approximated from the
-   * files inside `<folderPath>/papers/`. Sprint 2 will replace this with a
-   * cached frontmatter parse so it stays accurate as the vault grows.
+   * Recompute `ProjectStats`. Paper counts and per-status breakdowns come
+   * from the canonical `PaperService` index via `getProjectPapers` — Slice 0
+   * fix: previously every paper was a filename stub hard-coded to
+   * `status: 'unread'`, so the breakdown never matched reality.
    */
   getProjectStats(id: string): ProjectStats {
     const project = this.requireProject(id);
@@ -309,12 +325,20 @@ export class ProjectManager {
   }
 
   /**
-   * Markdown files inside the project's `papers/` subfolder. In Sprint 1
-   * this is a best-effort filter by path; Sprint 2 will validate YAML
-   * frontmatter to confirm a note really represents a paper.
+   * `Paper` records for a project, sourced from `PaperService`'s
+   * frontmatter-backed index — the canonical store. Slice 0 fix: this used
+   * to fabricate stub papers from filenames (`status: 'unread'`, no real
+   * metadata), so anything consuming the result mis-reported reading state.
+   * The filename walk below is kept only as a fallback for the window
+   * before `paperService.hydrate()` has populated the index.
    */
   getProjectPapers(projectId: string): Paper[] {
     const project = this.requireProject(projectId);
+    const service = this.plugin.paperService;
+    if (service) {
+      const indexed = service.getInProject(projectId);
+      if (indexed.length > 0) return indexed;
+    }
     const papersRoot = `${project.folderPath.replace(/\/+$/, '')}/papers`;
     return this.getProjectFiles(projectId)
       .filter((f) => f.path.startsWith(`${papersRoot}/`))
@@ -360,9 +384,9 @@ export class ProjectManager {
   }
 
   /**
-   * Build a stub `Paper` from a markdown filename. Used by `getProjectPapers`
-   * to surface a count in Sprint 1 stats before PaperService exists; the
-   * real parse lives in Sprint 2.
+   * Build a stub `Paper` from a markdown filename. Fallback only — used by
+   * `getProjectPapers` when the `PaperService` index has not been hydrated
+   * yet; the frontmatter-backed index is the canonical source.
    */
   private mapFileToPaper(
     file: TFile,

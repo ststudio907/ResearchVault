@@ -5,7 +5,7 @@
 // source of truth and Vim/IDE "Go to type" lands in one place.
 //
 
-import type { Project, ProjectStats, Paper, Quote, AIRequest, AIResponse } from '../types';
+import type { Project, ProjectStats, Paper, Quote, SynthesisNote, AIRequest, AIResponse } from '../types';
 import type {
   CitationLookupSucceeded,
   CitationLookupFailed,
@@ -36,6 +36,15 @@ export interface ResearchVaultEvents {
   paperStatusChanged: Paper;
   /** Emitted when a quote is appended to a paper (editor capture or PDF extraction). */
   quoteAdded: { paper: Paper; quote: Quote };
+  /** Emitted when a new synthesis note is created on disk (1.1 Slice 1). */
+  synthesisCreated: SynthesisNote;
+  /**
+   * Emitted when a synthesis note changes — an evidence block added/removed
+   * by the service, or a live in-Obsidian edit synced from the vault.
+   */
+  synthesisUpdated: SynthesisNote;
+  /** Emitted when a synthesis note is removed from the index (delete or rename away). */
+  synthesisRemoved: { synthesisId: string };
   /** Emitted when the vault index is rebuilt or patched. Subscribers re-render. */
   indexUpdated: { count: number };
   /** Emitted right before a network AI call goes out. */

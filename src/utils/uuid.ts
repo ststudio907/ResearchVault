@@ -8,7 +8,12 @@
 
 /** Returns a v4 UUID string. */
 export function newId(): string {
-  const cryptoRef = typeof globalThis !== 'undefined' ? (window.crypto as Crypto | undefined) : undefined;
+  // Slice 0 fix: this used to guard on `globalThis` but then dereference
+  // `window`, which threw `ReferenceError: window is not defined` in any
+  // non-DOM runtime (Node tooling, unit tests). Guarding on `typeof window`
+  // takes the Web Crypto path in the Obsidian renderer and the safe fallback
+  // everywhere else.
+  const cryptoRef = typeof window !== 'undefined' ? (window.crypto as Crypto | undefined) : undefined;
   if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
     return cryptoRef.randomUUID();
   }

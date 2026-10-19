@@ -6,13 +6,14 @@
 //
 
 import { Editor, Plugin, Notice, TFile } from 'obsidian';
-import type { Paper, QuoteSource } from '../types';
+import type { Paper, QuoteSource, SynthesisNote } from '../types';
 import {
   ResearchVaultSettings,
   migrateSettings,
 } from '../settings';
 import { ProjectManager } from '../services/project-manager';
 import { PaperService } from '../services/paper-service';
+import { SynthesisService } from '../services/synthesis-service';
 import { VaultIndexer } from '../services/vault-indexer';
 import { BibliographyService } from '../services/citation/bibliography-service';
 import { CitationService } from '../services/citation/citation-service';
@@ -21,6 +22,8 @@ import { ZoteroLocalClient } from '../services/integrations/zotero/zotero-local-
 import { EventEmitter } from '../utils/event-emitter';
 import type { ResearchVaultEvents } from './events';
 import { CreateProjectModal, SwitchProjectModal } from '../ui/modals/create-project-modal';
+import { CreateSynthesisModal } from '../ui/modals/create-synthesis-modal';
+import { AddEvidenceModal, EvidencePickerModal } from '../ui/modals/evidence-modal';
 import { PaperImportModal } from '../ui/modals/paper-import-modal';
 import { QuoteCaptureModal } from '../ui/modals/quote-capture-modal';
 import { CitationPickModal } from '../ui/modals/citation-pick-modal';
@@ -47,6 +50,8 @@ export class ResearchVaultPlugin extends Plugin {
   settings!: ResearchVaultSettings;
   projectManager!: ProjectManager;
   paperService!: PaperService;
+  /** Synthesis notes with evidence blocks (1.1 Slice 1). */
+  synthesisService!: SynthesisService;
   vaultIndexer!: VaultIndexer;
   /** C1 (3.2 Citation excellence / D36): owns the per-project `bibliography.bib` rebuild. */
   bibliographyService!: BibliographyService;
@@ -85,6 +90,70 @@ export class ResearchVaultPlugin extends Plugin {
       return;
     }
     new PaperImportModal(this.app, this).open();
+  }
+
+  /**
+   * Open the minimal synthesis-note creation modal (1.1 Slice 1 smoke
+   * surface; Slice 2 grows it into the full synthesis workspace).
+   */
+  openCreateSynthesisModal(): void {
+    const active = this.projectManager.getActiveProject();
+    if (!active) {
+      new Notice('ResearchVault: activate a project before creating a synthesis note.');
+      return;
+    }
+    new CreateSynthesisModal(this.app, this).open();
+  }
+
+  /**
+   * Resolve the synthesis note the evidence commands should target:
+   * explicitly supplied note → active file if it is a synthesis note →
+   * the single synthesis note in the active project. `null` means "ask
+   * the user to be more specific" (the commands Notice in that case).
+   */
+  private resolveSynthesisTarget(note?: SynthesisNote): SynthesisNote | null {
+    if (note) return note;
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile) {
+      const byPath = this.synthesisService.getByPath(activeFile.path);
+      if (byPath) return byPath;
+    }
+    const projectId = this.projectManager.getActiveProject()?.id;
+    if (projectId) {
+      const notes = this.synthesisService.getInProject(projectId);
+      // `noUncheckedIndexedAccess`: `notes[0]` is `| undefined`, so normalize
+      // to the method's `| null` contract here.
+      return notes.length === 1 ? (notes[0] ?? null) : null;
+    }
+    return null;
+  }
+
+  /** Open the evidence-capture modal for a synthesis note (see `resolveSynthesisTarget`). */
+  openAddEvidenceModal(note?: SynthesisNote): void {
+    const target = this.resolveSynthesisTarget(note);
+    if (!target) {
+      new Notice(
+        'ResearchVault: open a synthesis note first (or keep exactly one in the active project).',
+      );
+      return;
+    }
+    new AddEvidenceModal(this.app, this, target).open();
+  }
+
+  /** Open the evidence-removal picker for a synthesis note (see `resolveSynthesisTarget`). */
+  openRemoveEvidenceModal(note?: SynthesisNote): void {
+    const target = this.resolveSynthesisTarget(note);
+    if (!target) {
+      new Notice(
+        'ResearchVault: open a synthesis note first (or keep exactly one in the active project).',
+      );
+      return;
+    }
+    if (this.synthesisService.getById(target.id)?.evidence.length === 0) {
+      new Notice('ResearchVault: that synthesis note has no evidence blocks yet.');
+      return;
+    }
+    new EvidencePickerModal(this.app, this, target).open();
   }
 
   /**
@@ -199,6 +268,10 @@ export class ResearchVaultPlugin extends Plugin {
     this.paperService = new PaperService(this, this.projectManager);
     // Trivial constructor (no disk I/O until export), safe to wire up front.
     this.bibliographyService = new BibliographyService(this);
+    // 1.1 Slice 1: synthesis notes. Trivial constructor; hydrated on
+    // layout-ready after the paper index (its evidence blocks reference
+    // papers by citekey, so a warm paper index keeps `addEvidence` cheap).
+    this.synthesisService = new SynthesisService(this, this.projectManager);
 
     // Indexer is built on top of `paperService`; the constructor is trivial,
     // so we create the instance up front and hydrate it once papers are
@@ -221,6 +294,11 @@ export class ResearchVaultPlugin extends Plugin {
           await this.paperService.hydrate();
         } catch (err) {
           console.error('[ResearchVault] paper hydration failed', err);
+        }
+        try {
+          await this.synthesisService.hydrate();
+        } catch (err) {
+          console.error('[ResearchVault] synthesis hydration failed', err);
         }
         this.vaultIndexer.hydrate();
         this.registerVaultSync();
@@ -254,6 +332,24 @@ export class ResearchVaultPlugin extends Plugin {
       id: 'add-paper',
       name: 'Add paper',
       callback: () => this.openAddPaperModal(),
+    });
+
+    this.addCommand({
+      id: 'create-synthesis',
+      name: 'Create synthesis note',
+      callback: () => this.openCreateSynthesisModal(),
+    });
+
+    this.addCommand({
+      id: 'add-evidence',
+      name: 'Add evidence to synthesis note',
+      callback: () => this.openAddEvidenceModal(),
+    });
+
+    this.addCommand({
+      id: 'remove-evidence',
+      name: 'Remove evidence from synthesis note',
+      callback: () => this.openRemoveEvidenceModal(),
     });
 
     this.addCommand({
@@ -300,6 +396,12 @@ export class ResearchVaultPlugin extends Plugin {
 
     this.addSettingTab(new ResearchVaultSettingTab(this.app, this));
 
+    // Dev/debug aid (1.1 Slice 1 smoke): expose the plugin instance on
+    // `window` so the developer console can drive service-level APIs —
+    // notably synthesis evidence blocks, which have no UI surface until
+    // Slice 2. Harmless in normal use (no state, no listeners).
+    (window as unknown as { researchVault?: ResearchVaultPlugin }).researchVault = this;
+
     // 5. Save any defaults we just materialised.
     if (!stored || Object.keys(stored).length === 0) {
       await this.saveData(this.settings);
@@ -309,6 +411,7 @@ export class ResearchVaultPlugin extends Plugin {
   onunload(): void {
     this.vaultIndexer?.dispose();
     this.paperService?.dispose();
+    this.synthesisService?.dispose();
     this.eventBus?.clear();
   }
 
@@ -332,22 +435,28 @@ export class ResearchVaultPlugin extends Plugin {
           // marker), skip external-edit handling entirely — `syncFromFile`
           // would only re-read what we already wrote.
           if (this.paperService.consumeSelfWrite(file.path)) return;
+          // 1.1 Slice 1: same echo contract for synthesis-note writes.
+          if (this.synthesisService.consumeSelfWrite(file.path)) return;
           // D24 amended: we no longer re-stamp `dateModified` (it is derived from
           // the file's own mtime). We only schedule a debounced re-sync —
           // Obsidian autosaves while the user types, so one sync per quiet
-          // window instead of one write per keystroke-save.
+          // window instead of one write per keystroke-save. Both services
+          // no-op for paths they do not own.
           this.paperService.scheduleSync(file);
+          this.synthesisService.scheduleSync(file);
         }
       }),
     );
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
         void this.paperService.pathChanged({ oldPath, newPath: file.path });
+        void this.synthesisService.pathChanged({ oldPath, newPath: file.path });
       }),
     );
     this.registerEvent(
       this.app.vault.on('delete', (file) => {
         void this.paperService.pathChanged({ oldPath: file.path });
+        void this.synthesisService.pathChanged({ oldPath: file.path });
       }),
     );
   }
