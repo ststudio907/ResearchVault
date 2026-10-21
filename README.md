@@ -72,3 +72,5 @@ The build emits `main.js` at the repo root; copy it alongside `manifest.json` an
 
 0-BSD — see [LICENSE](LICENSE).
 
+The five built-in citation styles used by the Word/PDF export are vendored from the [CSL styles repository](https://github.com/citation-style-language/styles), licensed CC BY-SA 3.0.
+
