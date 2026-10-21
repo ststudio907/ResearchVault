@@ -69,6 +69,16 @@ export class ResearchVaultPlugin extends Plugin {
   /** 5.2 — lazily constructed by `ensureZoteroLocalClient`. */
   private zoteroLocalClient: ZoteroLocalClient | null = null;
 
+  /**
+   * 1.1 Slice 2c (context awareness): vault path of the file in the active
+   * leaf, refreshed by the workspace listeners below. Only the path is
+   * cached — paper objects would go stale across re-hydrations, and
+   * resolving the paper is an O(1) index lookup at form-open time. No vault
+   * scans happen at startup; the initial value is just whatever leaf is
+   * active when `onload` runs.
+   */
+  private activePaperContextPath: string | null = null;
+
   /** Pulled out so it can be invoked by `addCommand({ editorCallback })` and the settings tab alike. */
   openCreateProjectModal(): void {
     new CreateProjectModal(this.app, this).open();
@@ -137,7 +147,9 @@ export class ResearchVaultPlugin extends Plugin {
       );
       return;
     }
-    new AddEvidenceModal(this.app, this, target).open();
+    // 2c: if the user is reading a paper note from this project, prefill the
+    // Source dropdown with it (preference order: explicit preset > context).
+    new AddEvidenceModal(this.app, this, target, this.contextPaper(target.projectId)).open();
   }
 
   /** Open the evidence-removal picker for a synthesis note (see `resolveSynthesisTarget`). */
@@ -217,11 +229,47 @@ export class ResearchVaultPlugin extends Plugin {
     }
     try {
       const hub = await this.synthesisService.ensureHub(active.id);
-      new AddEvidenceModal(this.app, this, hub, paper).open();
+      // 2c: no explicit row-button preset → fall back to the open paper note
+      // (only when it belongs to the hub's project, so the dropdown never
+      // gets seeded with a citekey it cannot display).
+      new AddEvidenceModal(this.app, this, hub, paper ?? this.contextPaper(active.id)).open();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       new Notice(`ResearchVault: could not open the hub evidence form: ${message}`);
     }
+  }
+
+  /**
+   * 1.1 Slice 2c (context awareness): the paper (if any) whose note is open
+   * in the active leaf, resolved at call time from the cached path, and only
+   * when it belongs to `projectId` (when given) so capture forms never get
+   * prefilled with a paper from a different project.
+   */
+  private contextPaper(projectId?: string): Paper | undefined {
+    if (!this.activePaperContextPath) return undefined;
+    const paper = this.paperService.getPaperByPath(this.activePaperContextPath);
+    if (!paper) return undefined;
+    if (projectId && paper.customFields.projectId !== projectId) return undefined;
+    return paper;
+  }
+
+  /**
+   * Seed the active-leaf context path. Registered for both events because
+   * they fire in different situations: `file-open` when a file is opened in
+   * the active leaf, `active-leaf-change` when focus moves between leaves
+   * (including to non-file leaves, where the context becomes null).
+   */
+  private registerContextTracking(): void {
+    this.registerEvent(
+      this.app.workspace.on('file-open', (file) => {
+        this.activePaperContextPath = file?.path ?? null;
+      }),
+    );
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', () => {
+        this.activePaperContextPath = this.app.workspace.getActiveFile()?.path ?? null;
+      }),
+    );
   }
 
   /** Open a vault markdown file in the active leaf; throws if the path is gone. */
@@ -288,7 +336,20 @@ export class ResearchVaultPlugin extends Plugin {
       new Notice('ResearchVault: create a project before capturing a quote.');
       return;
     }
-    new QuoteCaptureModal(this.app, this, options).open();
+    // 1.1 Slice 2c (context awareness): quoting while reading a paper note
+    // should prefill that paper — the modal's own fallback (most recent
+    // import) only makes sense with no paper in context. Explicit callers
+    // (sidebar row buttons) keep winning via `defaultPaperId`.
+    const resolved = { ...options };
+    if (!resolved.defaultPaperId) {
+      // Only prefill from context when there is an active project — the
+      // quote form lists the active project's papers, so a paper from
+      // another project would leave the dropdown unable to display it.
+      const active = this.projectManager.getActiveProject();
+      const paper = active ? this.contextPaper(active.id) : undefined;
+      if (paper) resolved.defaultPaperId = paper.id;
+    }
+    new QuoteCaptureModal(this.app, this, resolved).open();
   }
 
   /**
@@ -381,6 +442,11 @@ export class ResearchVaultPlugin extends Plugin {
         this.registerVaultSync();
       })();
     });
+
+    // 4. Context tracking (1.1 Slice 2c): pure workspace listeners — no vault
+    // scans, no hydration dependency (the path is resolved to a paper lazily
+    // at form-open time, long after `hydrate()` has run).
+    this.registerContextTracking();
 
     // 5. UI: view registration, ribbon, commands, settings tab.
     this.registerView(

@@ -173,6 +173,20 @@ export class PaperService {
   }
 
   /**
+   * 1.1 Slice 2c (context awareness): resolve the paper whose note lives at
+   * `filePath` — O(1) via the path index, with the same basename fallback
+   * `idAtPath` uses for notes moved between project folders. `undefined`
+   * when the path is not a paper note (synthesis notes, attachments, …).
+   * The plugin's workspace listeners call this when a capture form opens;
+   * the paper object is never cached across leaf changes, so a re-hydrated
+   * index is picked up on the next call automatically.
+   */
+  getPaperByPath(filePath: string): Paper | undefined {
+    const id = this.idAtPath(filePath);
+    return id ? this.byId.get(id) : undefined;
+  }
+
+  /**
    * Look up a paper by citekey. Citekeys are unique within a project but may
    * repeat across projects, so pass `projectId` to disambiguate; without it
    * the first matching paper (arbitrary project) is returned.
