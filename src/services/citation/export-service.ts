@@ -38,6 +38,8 @@ export interface ExportOptions {
 export interface ExportNoteResult {
 	/** Vault path the formatted document was written to. */
 	outputPath: string;
+	/** Absolute filesystem path (for reveal-in-file-manager; desktop only). */
+	outputAbsPath: string;
 	format: ExportFormat;
 }
 
@@ -176,6 +178,23 @@ export function pandocCandidates(configured: string | undefined, isWindows = fal
 }
 
 
+export function showItemInFolderFromModule(mod: unknown, path: string): void {
+	const shell = (mod as { shell?: { showItemInFolder?: (p: string) => void } }).shell;
+	if (typeof shell?.showItemInFolder !== 'function') {
+		throw new Error("electron did not expose 'shell.showItemInFolder'.");
+	}
+	shell.showItemInFolder(path);
+}
+
+/**
+ * Reveal a file in the OS file manager (Finder/Explorer), selecting it.
+ * Desktop only (the caller gates on `Platform.isDesktopApp`); throws with a
+ * diagnosable message when Electron's shell is unavailable.
+ */
+export function revealInFileManager(absPath: string): void {
+	showItemInFolderFromModule(nodeRequire('electron'), absPath);
+}
+
 // --- Service ----------------------------------------------------------------
 
 export class ExportService {
@@ -207,7 +226,7 @@ export class ExportService {
 		}
 
 		const bib = await this.ensureBibliography(project);
-		if (!bib) return { outputPath: '', format: options.format };
+		if (!bib) return { outputPath: '', outputAbsPath: '', format: options.format };
 
 		const cslPath = await this.resolveCslPath(options);
 		const outName = `${file.basename}.${options.format}`;
@@ -247,7 +266,8 @@ export class ExportService {
 			} else {
 				await this.plugin.app.vault.createBinary(targetPath, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
 			}
-			return { outputPath: targetPath, format: options.format };
+			const outputAbsPath = nodePath.join(vaultRoot, targetPath);
+			return { outputPath: targetPath, outputAbsPath, format: options.format };
 		} finally {
 			// Best-effort temp cleanup; a leaked temp file is harmless.
 			await fs.unlink(outAbs).catch(() => {});

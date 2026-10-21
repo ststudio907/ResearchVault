@@ -16,6 +16,7 @@ import {
   findProjectForPath,
   isBundledStyle,
   pandocCandidates,
+  showItemInFolderFromModule,
 } from '../src/services/citation/export-service';
 import { CSL_BUNDLED } from '../src/services/citation/csl-bundle.generated';
 import type { Project } from '../src/types';
@@ -159,5 +160,18 @@ describe('pandocCandidates', () => {
   it('skips fallbacks on Windows, which resolves bare names itself', () => {
     expect(pandocCandidates('pandoc', true)).toEqual(['pandoc']);
     expect(pandocCandidates('C:\\tools\\pandoc.exe', true)).toEqual(['C:\\tools\\pandoc.exe']);
+  });
+});
+
+describe('showItemInFolderFromModule', () => {
+  it('reaches shell.showItemInFolder on the electron module object', () => {
+    const revealed: string[] = [];
+    const fakeElectron = { shell: { showItemInFolder: (p: string) => revealed.push(p) } };
+    showItemInFolderFromModule(fakeElectron, '/vault/papers/out.docx');
+    expect(revealed).toEqual(['/vault/papers/out.docx']);
+  });
+
+  it('refuses an electron module without shell.showItemInFolder', () => {
+    expect(() => showItemInFolderFromModule({}, '/x')).toThrow(/showItemInFolder/);
   });
 });

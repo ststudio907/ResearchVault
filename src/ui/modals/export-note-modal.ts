@@ -5,11 +5,12 @@
 // and an opt-in checkbox persists the choice back onto the project record so
 // the next export starts from the same place. Locked 2026-10-21 (Q4).
 //
-import { App, Modal, Notice, Setting, TFile, normalizePath } from 'obsidian';
+import { App, Modal, Notice, Platform, Setting, TFile, normalizePath } from 'obsidian';
 import type { ResearchVaultPlugin } from '../../core/plugin';
 import { BUNDLED_CSL_STYLES, type ExportFormat } from '../../services/citation/export-service';
 import type { CitationStyle } from '../../types';
 import { applyStandardModalWidth } from './modal-width';
+import { ExportResultModal } from './export-result-modal';
 
 const STYLE_LABELS: Record<string, string> = {
 	apa: 'APA',
@@ -133,8 +134,14 @@ export class ExportNoteModal extends Modal {
 				format: this.format,
 				saveAsProjectDefault: this.saveAsDefault,
 			});
-			new Notice(`ResearchVault: exported to ${result.outputPath}.`);
 			this.close();
+			if (Platform.isDesktopApp) {
+				// Success dialog with a "Show in folder" reveal (Obsidian hides
+				// .docx in its file explorer by default).
+				new ExportResultModal(this.app, result).open();
+			} else {
+				new Notice(`ResearchVault: exported to ${result.outputPath}.`);
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			new Notice(`ResearchVault: export failed — ${message}`);
