@@ -16,7 +16,7 @@ import { ItemView, WorkspaceLeaf, Notice, Platform, setIcon } from 'obsidian';
 import { paperToBibtexEntry } from '../../services/citation/bibtex';
 import type { ConnectorItem } from '../../services/integrations/zotero/zotero-local-client';
 import type { ResearchVaultPlugin } from '../../core/plugin';
-import type { Paper, Priority, ReadingStatus } from '../../types';
+import type { EvidenceStance, Paper, Priority, ReadingStatus } from '../../types';
 import { PRIORITIES, READING_STATUSES } from '../../types';
 import { formatPaperDate } from '../../utils/format-date';
 import {
@@ -98,6 +98,13 @@ export class ProjectsSidebarView extends ItemView {
   /** Panel element — re-created only when the view fully re-renders. */
   private panelEl: HTMLElement | null = null;
   /**
+   * 1.1 Slice 2b: hub-card container — mounted once per full render, its
+   * children re-created in place by `renderHubCard()` on `synthesisUpdated`
+   * and `projectChanged`-driven re-renders. No inputs inside, so re-rendering
+   * it never steals focus.
+   */
+  private hubCardEl: HTMLElement | null = null;
+  /**
    * 5.2: result of the once-per-session Zotero-desktop reachability probe.
    * `null` = not probed yet; the push button renders only when `true`.
    */
@@ -154,6 +161,9 @@ export class ProjectsSidebarView extends ItemView {
       // Refresh results list when the indexer adds/removes/rebuilds records
       // (e.g. a quote was captured while the user is mid-typing a query).
       this.rv.eventBus.on('indexUpdated', () => this.scheduleRenderList()),
+      // 1.1 Slice 2b: evidence added/removed anywhere in the project moves
+      // the hub card's counts — repaint just the card (no inputs inside).
+      this.rv.eventBus.on('synthesisUpdated', () => this.renderHubCard()),
     );
     // 5.2: probe Zotero desktop once per session so the push button knows
     // whether to render. Silent on failure — offline is normal. Fire it
@@ -185,6 +195,7 @@ export class ProjectsSidebarView extends ItemView {
       this.renderDebounce = null;
     }
     this.flushFilterSave();
+    this.hubCardEl = null;
     this.contentEl.empty();
     return Promise.resolve();
   }
@@ -208,6 +219,12 @@ export class ProjectsSidebarView extends ItemView {
     // input; leaving it mounted across keystrokes is what keeps the input
     // focused.
     this.renderHeader(contentEl);
+
+    // 1.1 Slice 2b: hub card sits between the header and the filter panel —
+    // the project's cockpit row. Mounted once per full render; children are
+    // re-created in place by `renderHubCard()` on synthesis events.
+    this.hubCardEl = contentEl.createDiv({ cls: 'researchvault-hub-card' });
+    this.renderHubCard();
 
     // 2.9.C: collapsible filter panel sits between header and list. The
     // element is mounted once per full render; `renderPanel()` rebuilds
@@ -312,6 +329,91 @@ export class ProjectsSidebarView extends ItemView {
       }
       this.renderGroup(listEl, status, sortPapers(rows ?? [], this.filterState));
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Hub card (1.1 Slice 2b)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Re-create the hub card's children in place. Safe on every event; the
+   * card has no inputs, so repainting never steals focus. Renders nothing
+   * when no project is active (the paper list already says why).
+   */
+  private renderHubCard(): void {
+    const card = this.hubCardEl;
+    if (!card) return;
+    card.replaceChildren();
+
+    const active = this.rv.projectManager.getActiveProject();
+    if (!active) return;
+    const hub = this.rv.synthesisService.getHub(active.id);
+
+    // --- Title row: icon + "Project hub" -----------------------------------
+    const titleRow = card.createDiv({ cls: 'researchvault-hub-card-title-row' });
+    const iconEl = titleRow.createSpan({ cls: 'researchvault-hub-card-icon' });
+    setIcon(iconEl, 'book-open');
+    titleRow.createEl('span', {
+      text: 'Project hub',
+      cls: 'researchvault-hub-card-title',
+    });
+
+    // --- Thesis excerpt ----------------------------------------------------
+    const thesis = hub?.thesis?.trim();
+    card.createEl('div', {
+      text: thesis
+        ? thesis.length > 140
+          ? `${thesis.slice(0, 139).trimEnd()}\u2026`
+          : thesis
+        : 'No thesis yet \u2014 add one in the hub note.',
+      cls: thesis
+        ? 'researchvault-hub-card-thesis'
+        : 'researchvault-hub-card-thesis is-empty',
+    });
+
+    // --- Evidence tally (only meaningful once the hub exists) --------------
+    if (hub) {
+      const counts: Record<EvidenceStance, number> = {
+        supports: 0,
+        contradicts: 0,
+        neutral: 0,
+      };
+      const sources = new Set<string>();
+      for (const block of hub.evidence) {
+        counts[block.stance] += 1;
+        sources.add(block.citekey);
+      }
+      const stats = card.createDiv({ cls: 'researchvault-hub-card-stats' });
+      const statEntries: Array<[EvidenceStance, string]> = [
+        ['supports', `${counts.supports} supports`],
+        ['contradicts', `${counts.contradicts} contradicts`],
+        ['neutral', `${counts.neutral} neutral`],
+      ];
+      for (const [stance, label] of statEntries) {
+        stats.createEl('span', {
+          text: label,
+          cls: `researchvault-hub-card-stat researchvault-hub-card-stat--${stance}`,
+        });
+      }
+      stats.createEl('span', {
+        text: `${sources.size} ${sources.size === 1 ? 'source' : 'sources'}`,
+        cls: 'researchvault-hub-card-stat researchvault-hub-card-stat--sources',
+      });
+    }
+
+    // --- Action row ---------------------------------------------------------
+    const actions = card.createDiv({ cls: 'researchvault-hub-card-actions' });
+    const openHubBtn = actions.createEl('button', { text: 'Open hub' });
+    openHubBtn.addEventListener('click', () => {
+      void this.rv.openProjectHub();
+    });
+    const addEvidenceBtn = actions.createEl('button', {
+      text: 'Add evidence',
+      cls: 'mod-cta',
+    });
+    addEvidenceBtn.addEventListener('click', () => {
+      void this.rv.openHubEvidenceModal();
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -667,6 +769,24 @@ export class ProjectsSidebarView extends ItemView {
         void this.changePriority(paper.id, prioritySelect.value as Priority);
       });
       prioritySelect.addEventListener('click', (e) => e.stopPropagation());
+
+      // ---- 1.1 Slice 2b: "→ hub" evidence capture ---------------------------
+      // Opens the evidence form against the project's hub (created on
+      // demand) with this paper preset in the Source dropdown — prefill,
+      // not a lock. Replaces the earlier stance-menu quick-add (user
+      // feedback: same form as the card's "Add evidence", just prefilled).
+      const hubBtn = line3.createEl('button', {
+        cls: 'clickable-icon researchvault-sidebar-hub-btn',
+        attr: {
+          'aria-label': 'Add evidence from this paper to the hub',
+          title: 'Add evidence from this paper to the hub',
+        },
+      });
+      setIcon(hubBtn, 'corner-up-right');
+      hubBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void this.rv.openHubEvidenceModal(paper);
+      });
 
       const quoteBtn = line3.createEl('button', {
         cls: 'clickable-icon researchvault-sidebar-quote-btn',

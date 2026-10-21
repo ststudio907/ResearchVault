@@ -202,6 +202,28 @@ export class ResearchVaultPlugin extends Plugin {
     }
   }
 
+  /**
+   * Ensure the hub exists, then open the full evidence-capture modal against
+   * it (1.1 Slice 2b). Called two ways: from the hub card's "Add evidence"
+   * button with no argument (form defaults to the first paper), and from a
+   * paper row's "→ hub" button with that paper preset in the Source
+   * dropdown. All failures degrade to a Notice; nothing throws.
+   */
+  async openHubEvidenceModal(paper?: Paper): Promise<void> {
+    const active = this.projectManager.getActiveProject();
+    if (!active) {
+      new Notice('ResearchVault: activate a project before adding evidence to its hub.');
+      return;
+    }
+    try {
+      const hub = await this.synthesisService.ensureHub(active.id);
+      new AddEvidenceModal(this.app, this, hub, paper).open();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      new Notice(`ResearchVault: could not open the hub evidence form: ${message}`);
+    }
+  }
+
   /** Open a vault markdown file in the active leaf; throws if the path is gone. */
   private async openNoteAt(path: string): Promise<void> {
     const file = this.app.vault.getAbstractFileByPath(path);

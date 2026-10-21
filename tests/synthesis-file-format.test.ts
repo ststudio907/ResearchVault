@@ -9,6 +9,7 @@ import type { EvidenceBlock, SynthesisNote } from '../src/types';
 import {
   frontmatterToSynthesis,
   renderEvidenceBlock,
+  renderEvidenceSectionContent,
   renderSynthesisBody,
   toSynthesisFrontmatter,
   upsertEvidenceSection,
@@ -31,18 +32,22 @@ function makeBlock(overrides: Partial<EvidenceBlock> = {}): EvidenceBlock {
 }
 
 describe('renderEvidenceBlock', () => {
-  it('renders citekey, numeric locator as p., stance, and the anchor', () => {
+  it('renders citekey, numeric locator as p., and the bare anchor', () => {
     const out = renderEvidenceBlock(makeBlock({ locator: '42' }));
-    expect(out).toContain('### [[smith_2023_test]]');
+    expect(out).toContain('#### [[smith_2023_test]] · p. 42');
     expect(out).toContain('> Attention is all you need.');
-    expect(out).toContain('-- source: [[smith_2023_test]] · p. 42 · supports <!-- ev:ev-1 -->');
+    expect(out.trimEnd().endsWith('<!-- ev:ev-1 -->')).toBe(true);
+    // Footer is machine-only: no source link, no stance (group header carries it).
+    expect(out).not.toContain('-- source:');
+    expect(out).not.toContain('· supports');
   });
 
   it('writes non-numeric locators verbatim and omits missing ones', () => {
     const section = renderEvidenceBlock(makeBlock({ locator: '§3.2' }));
-    expect(section).toContain('· §3.2 · supports');
+    expect(section).toContain('#### [[smith_2023_test]] · §3.2');
     expect(renderEvidenceBlock(makeBlock())).not.toContain('p. ');
-    expect(renderEvidenceBlock(makeBlock()).split('·')).toHaveLength(2); // stance only
+    // No locator → no `·` anywhere: heading and footer are both plain.
+    expect(renderEvidenceBlock(makeBlock()).split('·')).toHaveLength(1);
   });
 
   it('block-quotes multi-line text', () => {
@@ -58,7 +63,8 @@ describe('parseEvidenceBlocks (render → parse round-trip)', () => {
       makeBlock({ id: 'ev-b', stance: 'contradicts', citekey: 'jones_2020_x', locator: '§4' }),
       makeBlock({ id: 'ev-c', stance: 'neutral', locator: undefined }),
     ];
-    const body = `## Evidence\n\n${blocks.map(renderEvidenceBlock).join('\n')}\n`;
+    // Render through the grouped section: stance lives in the ### headers now.
+    const body = `## Evidence\n\n${renderEvidenceSectionContent(blocks)}\n`;
     const parsed = parseEvidenceBlocks(body);
     expect(parsed).toHaveLength(3);
     expect(parsed.map((b) => b.id)).toEqual(['ev-a', 'ev-b', 'ev-c']);
@@ -66,6 +72,56 @@ describe('parseEvidenceBlocks (render → parse round-trip)', () => {
     expect(parsed[1]).toMatchObject({ citekey: 'jones_2020_x', locator: '§4', stance: 'contradicts' });
     expect(parsed[2]).toMatchObject({ stance: 'neutral' });
     expect(parsed[2]?.locator).toBeUndefined();
+  });
+
+  it('takes stance from the group header for anchor-only blocks', () => {
+    const body = [
+      '## Evidence',
+      '',
+      '### Contradicts',
+      '',
+      '#### [[smith_2023_test]] · p. 42',
+      '',
+      '> text',
+      '',
+      '<!-- ev:ev-1 -->',
+      '',
+    ].join('\n');
+    expect(parseEvidenceBlocks(body)[0]).toMatchObject({
+      id: 'ev-1',
+      citekey: 'smith_2023_test',
+      locator: '42',
+      stance: 'contradicts',
+      text: 'text',
+    });
+  });
+
+  it('defaults an anchor outside any group header to neutral (hand-moved anchors survive)', () => {
+    const body = [
+      '## Evidence',
+      '',
+      '#### [[smith_2023_test]]',
+      '',
+      '> text',
+      '',
+      '<!-- ev:ev-1 -->',
+      '',
+    ].join('\n');
+    expect(parseEvidenceBlocks(body)[0]?.stance).toBe('neutral');
+  });
+
+  it('skips anchor-only blocks with no heading above (citekey unrecoverable)', () => {
+    const body = [
+      '## Evidence',
+      '',
+      '### Supports',
+      '',
+      '> floating quote',
+      '',
+      '<!-- ev:ev-1 -->',
+      '',
+    ].join('\n');
+    expect(parseEvidenceBlocks(body)).toHaveLength(0);
   });
 
   it('ignores anchor-less footers instead of fabricating ids', () => {
@@ -80,6 +136,82 @@ describe('parseEvidenceBlocks (render → parse round-trip)', () => {
       '',
     ].join('\n');
     expect(parseEvidenceBlocks(body)).toHaveLength(0);
+  });
+});
+
+describe('grouped evidence layout (2b format revision)', () => {
+  it('groups entries under ### stance headers, entries as ####, skipping empty stances', () => {
+    const blocks = [
+      makeBlock({ id: 'ev-a', stance: 'contradicts', citekey: 'jones_2020_x' }),
+      makeBlock({ id: 'ev-b', stance: 'supports' }),
+    ];
+    const content = renderEvidenceSectionContent(blocks);
+    expect(content).toContain('### Supports');
+    expect(content).toContain('### Contradicts');
+    expect(content).not.toContain('### Neutral');
+    expect(content).toContain('#### [[smith_2023_test]]');
+    expect(content).toContain('#### [[jones_2020_x]]');
+    // Fixed group order regardless of array order (matches the hub card).
+    expect(content.indexOf('### Supports')).toBeLessThan(content.indexOf('### Contradicts'));
+    // Entries follow group order: supports group (smith) before contradicts (jones).
+    expect(content.indexOf('#### [[smith_2023_test]]')).toBeLessThan(content.indexOf('#### [[jones_2020_x]]'));
+  });
+
+  it('renders nothing for an empty evidence list', () => {
+    expect(renderEvidenceSectionContent([])).toBe('');
+  });
+
+  it('round-trips the grouped layout and is idempotent under re-render', () => {
+    const blocks = [
+      makeBlock({ id: 'ev-a', stance: 'supports', locator: '42' }),
+      makeBlock({ id: 'ev-b', stance: 'neutral', citekey: 'jones_2020_x' }),
+      makeBlock({ id: 'ev-c', stance: 'supports', citekey: 'kay_2021' }),
+    ];
+    const body = `## Evidence\n\n${renderEvidenceSectionContent(blocks)}\n`;
+    const parsed = parseEvidenceBlocks(body);
+    // File order is grouped order: supports first (ev-a, ev-c), then neutral.
+    expect(parsed.map((b) => b.id)).toEqual(['ev-a', 'ev-c', 'ev-b']);
+    // Re-rendering from the parsed index reproduces the section byte-for-byte.
+    const reRendered = upsertEvidenceSection(body, parsed);
+    expect(reRendered).toBe(body);
+    expect(parseEvidenceBlocks(reRendered).map((b) => b.id)).toEqual(['ev-a', 'ev-c', 'ev-b']);
+  });
+
+  it('still parses legacy flat blocks with ### entry headings (pre-grouping notes)', () => {
+    const body = [
+      '## Evidence',
+      '',
+      '### [[smith_2023_test]]',
+      '',
+      '> old note',
+      '',
+      '-- source: [[smith_2023_test]] · p. 3 · supports <!-- ev:ev-old -->',
+      '',
+    ].join('\n');
+    const parsed = parseEvidenceBlocks(body);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).toMatchObject({
+      id: 'ev-old',
+      citekey: 'smith_2023_test',
+      // Legacy blocks carry the locator in the footer; the parser falls back.
+      locator: '3',
+      stance: 'supports',
+      text: 'old note',
+    });
+  });
+
+  it('prefers the heading locator when a legacy footer also carries one', () => {
+    const body = [
+      '## Evidence',
+      '',
+      '#### [[smith_2023_test]] · p. 42',
+      '',
+      '> text',
+      '',
+      '-- source: [[smith_2023_test]] · p. 99 · supports <!-- ev:ev-1 -->',
+      '',
+    ].join('\n');
+    expect(parseEvidenceBlocks(body)[0]?.locator).toBe('42');
   });
 });
 
@@ -161,6 +293,20 @@ describe('full-note round-trip', () => {
   it('extractThesis picks up the paragraph between headings', () => {
     expect(extractThesis('## Thesis\n\nMulti\nline.\n\n## Evidence\n')).toBe('Multi\nline.');
     expect(extractThesis('## Evidence\n')).toBe('');
+  });
+});
+
+describe('empty-text evidence blocks (1.1 Slice 2b quick-add)', () => {
+  it('renders a bare blockquote line that parses back to empty text', () => {
+    const rendered = renderEvidenceBlock(makeBlock({ text: '' }));
+    expect(rendered).toContain('> \n');
+    // Parse inside a group header, as the section actually renders it —
+    // anchor-only blocks take their stance from the enclosing header.
+    const parsed = parseEvidenceBlocks(`### Supports\n\n${rendered}\n`);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.text).toBe('');
+    expect(parsed[0]?.citekey).toBe('smith_2023_test');
+    expect(parsed[0]?.stance).toBe('supports');
   });
 });
 

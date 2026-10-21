@@ -170,9 +170,11 @@ describe('SynthesisService.addEvidence / removeEvidence', () => {
     });
 
     const content = h.files.get(PATH) ?? '';
-    expect(content).toContain('### [[smith_2023_test]]');
+    expect(content).toContain('#### [[smith_2023_test]] · p. 42');
     expect(content).toContain('> Loss scales as a power law.');
-    expect(content).toContain('-- source: [[smith_2023_test]] · p. 42 · supports <!-- ev:');
+    expect(content).toContain('<!-- ev:'); // bare anchor footer
+    expect(content).not.toContain('-- source:');
+    expect(content).toContain('### Supports'); // stance lives in the group header
     expect(content).toContain('sources:'); // derived frontmatter list updated
 
     const indexed = h.service.getById(seed.id);
@@ -222,6 +224,28 @@ describe('SynthesisService.addEvidence / removeEvidence', () => {
     })).rejects.toThrow(/missing/);
     expect(h.vault.process).not.toHaveBeenCalled();
     expect(h.events).toHaveLength(0);
+  });
+
+  it('stores an empty-text block only when allowEmptyText is set (quick-add)', async () => {
+    const seed = makeNote();
+    const h = makeHarness(seed);
+
+    const block = await h.service.addEvidence(seed.id, {
+      citekey: 'smith_2023_test',
+      text: '',
+      stance: 'supports',
+      allowEmptyText: true,
+    });
+
+    expect(block.text).toBe('');
+    // The call-site flag is a transport hint, never persisted on the block.
+    expect('allowEmptyText' in block).toBe(false);
+    const content = h.files.get(PATH) ?? '';
+    expect(content).toContain('#### [[smith_2023_test]]');
+    expect(content).toContain('<!-- ev:'); // bare anchor footer
+    // Empty text renders as a bare blockquote line, which parses back empty.
+    expect(h.service.getById(seed.id)?.evidence[0]?.text).toBe('');
+    expect(eventsNamed(h.events, 'synthesisUpdated')).toHaveLength(1);
   });
 
   it('removes a block from disk and memory, and throws on unknown ids', async () => {

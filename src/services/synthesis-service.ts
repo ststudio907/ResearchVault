@@ -37,7 +37,14 @@ export interface SynthesisCreateInput {
 }
 
 /** Input shape accepted by `SynthesisService.addEvidence` (id/createdAt are service-assigned). */
-export type EvidenceInput = Omit<EvidenceBlock, 'id' | 'createdAt'>;
+export type EvidenceInput = Omit<EvidenceBlock, 'id' | 'createdAt'> & {
+  /**
+   * 1.1 Slice 2b: the sidebar's one-click "→ hub" button appends a stance
+   * without claim text — the user writes the why directly in the hub note.
+   * Only callers that pass this flag may store an empty `text`.
+   */
+  allowEmptyText?: boolean;
+};
 
 /**
  * Owns the synthesis-note lifecycle: creation, evidence-block mutation,
@@ -295,7 +302,7 @@ export class SynthesisService {
   async addEvidence(synthesisId: string, input: EvidenceInput): Promise<EvidenceBlock> {
     const note = this.requireById(synthesisId);
     const text = input.text?.trim() ?? '';
-    if (!text) {
+    if (!text && !input.allowEmptyText) {
       throw new Error('SynthesisService.addEvidence: evidence text is required.');
     }
     if (!EVIDENCE_STANCES.includes(input.stance)) {
@@ -305,8 +312,11 @@ export class SynthesisService {
       throw new Error('SynthesisService.addEvidence: a source citekey is required.');
     }
 
+    // `allowEmptyText` is a call-site flag, not part of the stored block.
+    const { allowEmptyText, ...coreInput } = input;
+    void allowEmptyText;
     const stored: EvidenceBlock = {
-      ...input,
+      ...coreInput,
       text,
       citekey: input.citekey.trim(),
       locator: input.locator?.trim() || undefined,

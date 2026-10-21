@@ -34,6 +34,12 @@ export class AddEvidenceModal extends Modal {
     app: App,
     private readonly plugin: ResearchVaultPlugin,
     private readonly note: SynthesisNote,
+    /**
+     * Optional paper to pre-select in the Source dropdown (1.1 Slice 2b:
+     * the paper row's "→ hub" button opens the form with this paper filled
+     * in). Still changeable — prefill, not a lock.
+     */
+    private readonly presetPaper?: Paper,
   ) {
     super(app);
   }
@@ -57,7 +63,8 @@ export class AddEvidenceModal extends Modal {
       );
       return;
     }
-    this.citekey = papers[0]?.citekey ?? '';
+    // Preset paper wins (row-button flow); otherwise first by citekey order.
+    this.citekey = this.presetPaper?.citekey ?? papers[0]?.citekey ?? '';
 
     new Setting(contentEl)
       .setName('Source')
