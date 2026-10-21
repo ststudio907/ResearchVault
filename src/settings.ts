@@ -32,6 +32,12 @@ export interface ResearchVaultSettings {
   templates: TemplateConfig;
   globalCitationStyle: CitationStyle;
   globalExcludedFolders: string[];
+  /**
+   * 1.1 "Cite & ship" (D40): the pandoc command used by the Word/PDF export.
+   * The binary is the user's own install — never bundled. A bare name
+   * resolves via PATH; a full path works too. Desktop-only feature.
+   */
+  pandocPath: string;
   ai: AIConfig;
   /**
    * Citation lookup preferences (4.1.A). OFF by default per `D29` — no
@@ -119,6 +125,7 @@ export const DEFAULT_SETTINGS: ResearchVaultSettings = {
   templates: DEFAULT_TEMPLATES,
   globalCitationStyle: DEFAULT_CITATION_STYLE,
   globalExcludedFolders: ['.trash'],
+  pandocPath: 'pandoc',
   ai: {
     provider: 'openai',
     model: 'gpt-4o-mini',
@@ -172,6 +179,11 @@ export function migrateSettings(raw: unknown): ResearchVaultSettings {
       ...((candidate.filterPanel ?? {}) as Partial<FilterPanelState>),
     },
     projects: Array.isArray(candidate.projects) ? candidate.projects : [],
+    // D40: default-fill so payloads saved before the export flow stay valid.
+    pandocPath:
+      typeof candidate.pandocPath === 'string' && candidate.pandocPath.trim()
+        ? candidate.pandocPath
+        : DEFAULT_SETTINGS.pandocPath,
     // D34: default-fill + normalize (guards against a persisted empty string).
     pdfLibraryFolder: normalizePdfLibraryFolder(candidate.pdfLibraryFolder),
     version: CURRENT_SETTINGS_VERSION,

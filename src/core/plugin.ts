@@ -5,7 +5,7 @@
 // stay the single source of truth for plugin-wide wiring.
 //
 
-import { Editor, Plugin, Notice, TFile } from 'obsidian';
+import { Editor, Plugin, Notice, Platform, TFile } from 'obsidian';
 import type { Paper, QuoteSource, SynthesisNote } from '../types';
 import {
   ResearchVaultSettings,
@@ -16,6 +16,7 @@ import { PaperService } from '../services/paper-service';
 import { SynthesisService } from '../services/synthesis-service';
 import { VaultIndexer } from '../services/vault-indexer';
 import { BibliographyService } from '../services/citation/bibliography-service';
+import { ExportService, findProjectForPath } from '../services/citation/export-service';
 import { CitationService } from '../services/citation/citation-service';
 import { ZoteroClient } from '../services/integrations/zotero/zotero-client';
 import { ZoteroLocalClient } from '../services/integrations/zotero/zotero-local-client';
@@ -27,6 +28,7 @@ import { AddEvidenceModal, EvidencePickerModal } from '../ui/modals/evidence-mod
 import { PaperImportModal } from '../ui/modals/paper-import-modal';
 import { QuoteCaptureModal } from '../ui/modals/quote-capture-modal';
 import { CitationPickModal } from '../ui/modals/citation-pick-modal';
+import { ExportNoteModal } from '../ui/modals/export-note-modal';
 import { registerCitationLinkProcessor } from '../ui/citation-link-renderer';
 import { formatCitationMarkup } from '../services/citation/citation-markup';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
@@ -68,6 +70,8 @@ export class ResearchVaultPlugin extends Plugin {
   private zoteroClient: ZoteroClient | null = null;
   /** 5.2 — lazily constructed by `ensureZoteroLocalClient`. */
   private zoteroLocalClient: ZoteroLocalClient | null = null;
+  /** 1.1 "Cite & ship" (D40) — lazily constructed by `ensureExportService`. */
+  private exportService: ExportService | null = null;
 
   /**
    * 1.1 Slice 2c (context awareness): vault path of the file in the active
@@ -308,6 +312,35 @@ export class ResearchVaultPlugin extends Plugin {
   }
 
   /**
+   * 1.1 "Cite & ship" (D39/D40): open the pre-export dialog for the active
+   * note. Guards degrade to Notices: mobile (no `child_process`), note not
+   * inside a project folder (no bibliography to attach).
+   */
+  openExportNoteModal(file: TFile): void {
+    if (!Platform.isDesktopApp) {
+      new Notice('ResearchVault: exporting to Word/PDF requires the Obsidian desktop app.');
+      return;
+    }
+    const project = findProjectForPath(this.projectManager.getAllProjects(), file.path);
+    if (!project) {
+      new Notice(`ResearchVault: "${file.path}" is not inside a project folder, so no bibliography can be attached.`);
+      return;
+    }
+    new ExportNoteModal(this.app, this, file).open();
+  }
+
+  /**
+   * 1.1 "Cite & ship": lazy accessor, same idempotent pattern as
+   * `ensureCitationService` / `ensureZoteroClient`.
+   */
+  ensureExportService(): ExportService {
+    if (!this.exportService) {
+      this.exportService = new ExportService(this);
+    }
+    return this.exportService;
+  }
+
+  /**
    * Insert `[@citekey]` at the cursor (3.2 Citation excellence C2 / D35).
    * Guards mirror `openAddPaperModal`: no active project / empty library get
    * a Notice and nothing is inserted.
@@ -518,6 +551,21 @@ export class ResearchVaultPlugin extends Plugin {
       name: 'Export bibliography (BibTeX)',
       callback: () => {
         void this.exportActiveBibliography();
+      },
+    });
+
+    // 1.1 "Cite & ship" (D39/D40): one-click Word/PDF via a user-installed
+    // pandoc. Desktop-gated at the command surface — mobile never reaches the
+    // lazy `child_process` boundary inside the service.
+    this.addCommand({
+      id: 'export-note',
+      name: 'Export note to docx/PDF (pandoc)',
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || file.extension !== 'md') return false;
+        if (!findProjectForPath(this.projectManager.getAllProjects(), file.path)) return false;
+        if (!checking) void this.openExportNoteModal(file);
+        return true;
       },
     });
 

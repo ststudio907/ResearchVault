@@ -36,6 +36,14 @@ export default tseslint.config(
 	},
 	...obsidianmd.configs.recommended,
 	{
+		files: ['tests/**'],
+		rules: {
+			// Vitest runs in Node, so unit tests may import node builtins
+			// (e.g. `node:zlib` to round-trip the vendored CSL bundle).
+			'import/no-nodejs-modules': 'off',
+		},
+	},
+	{
 		rules: {
 			// User-facing notices are prefixed with the plugin's brand name
 			// ("ResearchVault: ..."), whose interior capital conflicts with

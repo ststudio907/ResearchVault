@@ -25,6 +25,20 @@ export class TFolder {
   children: Array<TFile | TFolder> = [];
 }
 
+/** Shown via Notice; recorded so tests can assert user-facing messages. */
+export class Notice {
+  constructor(public message: string | DocumentFragment) {}
+}
+
+/** Chrome-less Modal base: services importing UI helpers load cleanly in tests. */
+export class Modal {
+  /** Definite-assignment: never touched in unit tests (no DOM in node env). */
+  contentEl!: HTMLElement;
+  constructor(public app?: unknown) {}
+  open(): void {}
+  close(): void {}
+}
+
 /**
  * Minimal YAML writer standing in for Obsidian's `stringifyYaml` (used by
  * `utils/frontmatter.ts`). Covers what unit tests emit: flat scalars, string

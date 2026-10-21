@@ -254,6 +254,24 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           }
         });
       });
+
+    // 1.1 "Cite & ship" (D40): pandoc command for the Word/PDF export. The
+    // binary is the user's own install — never bundled, nothing leaves the
+    // machine except the compiled document pandoc writes locally.
+    new Setting(root)
+      .setName('Pandoc binary')
+      .setDesc(
+        'Command or full path used to export notes to Word/PDF. Install pandoc ' +
+          'separately (pandoc.org); PDF export additionally needs a LaTeX engine.',
+      )
+      .addText((text) => {
+        text.setPlaceholder('Pandoc');
+        text.setValue(this.rv.settings.pandocPath);
+        text.onChange(async (value) => {
+          this.rv.settings.pandocPath = value.trim() || 'pandoc';
+          await this.rv.saveSettings();
+        });
+      });
   }
 
   // -------------------------------------------------------------------------
