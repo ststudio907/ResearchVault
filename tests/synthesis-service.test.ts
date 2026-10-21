@@ -43,7 +43,7 @@ function fileFor(path: string): TFile {
   const file = new TFile();
   file.path = path;
   file.basename = path.split('/').pop()!.replace(/\.md$/, '');
-  file.stat = { ctime: 1000, mtime: 1000 };
+  file.stat = { ctime: 1000, mtime: 1000, size: 0 };
   return file;
 }
 
