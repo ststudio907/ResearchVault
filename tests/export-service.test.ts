@@ -15,6 +15,7 @@ import {
   execFileFromModule,
   findProjectForPath,
   isBundledStyle,
+  pandocCandidates,
 } from '../src/services/citation/export-service';
 import { CSL_BUNDLED } from '../src/services/citation/csl-bundle.generated';
 import type { Project } from '../src/types';
@@ -133,5 +134,30 @@ describe('execFileFromModule', () => {
 
   it('refuses an object without an execFile function', () => {
     expect(() => execFileFromModule({})).toThrow(/execFile/);
+  });
+});
+
+describe('pandocCandidates', () => {
+  it('falls back to Homebrew prefixes for bare names (GUI apps inherit a minimal PATH)', () => {
+    expect(pandocCandidates(undefined)).toEqual([
+      'pandoc',
+      '/opt/homebrew/bin/pandoc',
+      '/usr/local/bin/pandoc',
+    ]);
+    expect(pandocCandidates('pandoc-3.12')).toEqual([
+      'pandoc-3.12',
+      '/opt/homebrew/bin/pandoc-3.12',
+      '/usr/local/bin/pandoc-3.12',
+    ]);
+  });
+
+  it('uses an explicit path as-is with no fallbacks', () => {
+    expect(pandocCandidates('/opt/homebrew/bin/pandoc')).toEqual(['/opt/homebrew/bin/pandoc']);
+    expect(pandocCandidates('~/bin/pandoc')).toEqual(['~/bin/pandoc']);
+  });
+
+  it('skips fallbacks on Windows, which resolves bare names itself', () => {
+    expect(pandocCandidates('pandoc', true)).toEqual(['pandoc']);
+    expect(pandocCandidates('C:\\tools\\pandoc.exe', true)).toEqual(['C:\\tools\\pandoc.exe']);
   });
 });

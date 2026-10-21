@@ -158,6 +158,23 @@ export function execFileFromModule(mod: unknown): ExecFileFn {
 	return execFile;
 }
 
+/** Homebrew + common local prefixes, tried in order for bare command names. */
+export const FALLBACK_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin'] as ReadonlyArray<string>;
+
+/**
+ * Spawn candidates for the configured pandoc binary, in order. A path with a
+ * separator is used as-is; a bare name (default 'pandoc') additionally tries
+ * the Homebrew prefixes, because a GUI-launched Electron app inherits a
+ * minimal PATH that usually omits /opt/homebrew/bin. Windows resolves bare
+ * names through its own lookup, so it needs no fallbacks.
+ */
+export function pandocCandidates(configured: string | undefined, isWindows = false): string[] {
+	const trimmed = configured?.trim() || 'pandoc';
+	if (isWindows || /[/\\]/.test(trimmed)) return [trimmed];
+	const name = trimmed.split('/').pop() ?? trimmed;
+	return [trimmed, ...FALLBACK_BIN_DIRS.map((dir) => `${dir}/${name}`)];
+}
+
 
 // --- Service ----------------------------------------------------------------
 
@@ -288,7 +305,12 @@ export class ExportService {
 		return cslPath;
 	}
 
-	/** The single spawn site (D40 boundary). Surfaces pandoc's stderr verbatim. */
+	/**
+	 * The single spawn site (D40 boundary). Surfaces pandoc's stderr verbatim.
+	 * Tries each candidate path (bare names also probe Homebrew prefixes — a
+	 * GUI-launched Obsidian inherits a PATH that omits /opt/homebrew/bin);
+	 * "not found" is only reported when every candidate misses.
+	 */
 	private runPandoc(args: string[], cwd: string): Promise<void> {
 		return new Promise((resolve, reject) => {
 			let execFile: ExecFileFn;
@@ -298,21 +320,31 @@ export class ExportService {
 				reject(new Error('Exporting to Word/PDF requires the Obsidian desktop app.'));
 				return;
 			}
-			const binary = this.plugin.settings.pandocPath?.trim() || 'pandoc';
-			execFile(binary, args, { cwd }, (error, _stdout, stderr) => {
-				if (!error) {
-					resolve();
-					return;
-				}
-				if ((error as { code?: string }).code === 'ENOENT') {
+			const candidates = pandocCandidates(this.plugin.settings.pandocPath);
+			const tryCandidate = (index: number): void => {
+				const binary = candidates[index];
+				if (binary === undefined) {
+					const tried = candidates.length > 1 ? ` (tried ${candidates.join(', ')})` : ` ("${candidates[0]}")`;
 					reject(new Error(
-						`pandoc was not found ("${binary}"). Install it from pandoc.org — or point Settings → Research Vault → Pandoc binary at the installed command — and try again.`,
+						`pandoc was not found${tried}. Install it (e.g. brew install pandoc) ` +
+						'— or point Settings → Research Vault → Pandoc binary at the full path — and try again.',
 					));
 					return;
 				}
-				const detail = (error.stderr || stderr || error.message || '').trim();
-				reject(new Error(detail ? `pandoc failed: ${detail}` : 'pandoc failed with no error output.'));
-			});
+				execFile(binary, args, { cwd }, (error, _stdout, stderr) => {
+					if (!error) {
+						resolve();
+						return;
+					}
+					if ((error as { code?: string }).code === 'ENOENT') {
+						tryCandidate(index + 1);
+						return;
+					}
+					const detail = (error.stderr || stderr || error.message || '').trim();
+					reject(new Error(detail ? `pandoc failed: ${detail}` : 'pandoc failed with no error output.'));
+				});
+			};
+			tryCandidate(0);
 		});
 	}
 }
