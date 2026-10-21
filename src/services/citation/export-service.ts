@@ -56,7 +56,7 @@ function nodeRequire(id: string): unknown {
 	throw new Error('Node modules are only available in the Obsidian desktop app.');
 }
 
-type ExecFileFn = (
+export type ExecFileFn = (
 	file: string,
 	args: string[],
 	options: { cwd: string },
@@ -142,6 +142,20 @@ export const BUNDLED_CSL_STYLES = Object.keys(CSL_BUNDLED) as ReadonlyArray<stri
 
 export function isBundledStyle(style: CitationStyle): boolean {
 	return style !== 'custom' && Object.prototype.hasOwnProperty.call(CSL_BUNDLED, style);
+}
+
+/**
+ * Pull `execFile` off the `child_process` *module object*. The lazy node
+ * boundary returns whole modules, so the spawn site must destructure —
+ * calling the module object itself is a runtime "…n is not a function"
+ * crash (shipped once, regression-tested here).
+ */
+export function execFileFromModule(mod: unknown): ExecFileFn {
+	const execFile = (mod as { execFile?: ExecFileFn }).execFile;
+	if (typeof execFile !== 'function') {
+		throw new Error("node:child_process did not expose an 'execFile' function.");
+	}
+	return execFile;
 }
 
 
@@ -279,7 +293,7 @@ export class ExportService {
 		return new Promise((resolve, reject) => {
 			let execFile: ExecFileFn;
 			try {
-				execFile = nodeRequire('node:child_process') as ExecFileFn;
+				execFile = execFileFromModule(nodeRequire('node:child_process'));
 			} catch {
 				reject(new Error('Exporting to Word/PDF requires the Obsidian desktop app.'));
 				return;

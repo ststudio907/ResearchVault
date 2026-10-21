@@ -12,6 +12,7 @@ import { gunzipSync } from 'node:zlib';
 import {
   BUNDLED_CSL_STYLES,
   buildPandocArgs,
+  execFileFromModule,
   findProjectForPath,
   isBundledStyle,
 } from '../src/services/citation/export-service';
@@ -119,5 +120,18 @@ describe('bundled CSL styles (D39 built-ins)', () => {
     const totalB64 = Object.values(CSL_BUNDLED).reduce((sum, v) => sum + v.length, 0);
     // Guard against accidental vendoring of raw XML (~300 KB uncompressed).
     expect(totalB64).toBeLessThan(60_000);
+  });
+});
+
+describe('execFileFromModule', () => {
+  it('destructures execFile off the child_process module object', () => {
+    // The lazy node boundary returns whole modules — the shipped bug was
+    // calling the module object itself ("…n is not a function" at runtime).
+    const fakeModule = { execFile: (_f: string, _a: string[], _o: unknown, cb: () => void) => cb() };
+    expect(typeof execFileFromModule(fakeModule)).toBe('function');
+  });
+
+  it('refuses an object without an execFile function', () => {
+    expect(() => execFileFromModule({})).toThrow(/execFile/);
   });
 });
