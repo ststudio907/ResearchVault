@@ -39,10 +39,11 @@ export interface CitationSettings {
   /** Token-bucket capacity (burst). Default 10. */
   rateLimitBurst: number;
   /**
-   * C3: render style-formatted citations in reading view ("(Smith, 2020)")
-   * through the bundled citeproc engine. ON by default — the styled text is
-   * still clickable and the raw Pandoc markup is untouched in the file; turn
-   * off to keep reading view showing the plain `[@citekey]` links.
+   * C3/C3.2: render style-formatted citations through the bundled citeproc
+   * engine — in reading view and live preview ("(Smith, 2020)"); source mode
+   * always shows the raw markup. ON by default — the styled text is still
+   * clickable and the raw Pandoc markup is untouched on disk; turn off to
+   * keep the plain `[@citekey]` text everywhere.
    */
   renderInNote: boolean;
 }

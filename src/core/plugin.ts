@@ -30,6 +30,7 @@ import { QuoteCaptureModal } from '../ui/modals/quote-capture-modal';
 import { CitationPickModal } from '../ui/modals/citation-pick-modal';
 import { ExportNoteModal } from '../ui/modals/export-note-modal';
 import { registerCitationLinkProcessor } from '../ui/citation-link-renderer';
+import { registerStyledCitationEditor } from '../ui/styled-citation-editor';
 import { formatCitationMarkup } from '../services/citation/citation-markup';
 import { ResearchVaultSettingTab } from '../ui/settings/settings-tab';
 import { ProjectsSidebarView, VIEW_TYPE_RESEARCHVAULT_SIDEBAR } from '../ui/views/projects-sidebar-view';
@@ -580,6 +581,9 @@ export class ResearchVaultPlugin extends Plugin {
     // 3.2 C2 follow-up: render `[@citekey]` as a clickable link to the paper
     // note in reading view (the markup itself stays inert for Pandoc).
     registerCitationLinkProcessor(this);
+    // C3.2: the same styled citations inside the editor (live preview only;
+    // source mode stays raw markup). No-op when renderInNote is off.
+    registerStyledCitationEditor(this);
 
     this.addCommand({
       id: 'insert-citation',

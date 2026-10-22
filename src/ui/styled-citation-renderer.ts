@@ -190,9 +190,10 @@ async function resolveStyleXml(
 /**
  * Citekeys are only unique within a project (D24), so resolution prefers the
  * active project and falls back to the first match anywhere in the library.
- * Mirrors the plain-link renderer's resolution.
+ * Mirrors the plain-link renderer's resolution. Shared with the C3.2
+ * live-preview extension, which resolves the same way.
  */
-function resolvePaper(plugin: ResearchVaultPlugin, key: string): Paper | null {
+export function resolvePaper(plugin: ResearchVaultPlugin, key: string): Paper | null {
   const active = plugin.projectManager.getActiveProject();
   if (active) {
     const inActive = plugin.paperService.getByCitekey(key, active.id);
@@ -201,7 +202,7 @@ function resolvePaper(plugin: ResearchVaultPlugin, key: string): Paper | null {
   return plugin.paperService.getByCitekey(key) ?? null;
 }
 
-async function openPaperNote(
+export async function openPaperNote(
   plugin: ResearchVaultPlugin,
   paper: Paper,
   sourcePath: string,
