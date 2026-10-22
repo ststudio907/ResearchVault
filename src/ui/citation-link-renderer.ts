@@ -17,6 +17,7 @@ import {
   locateKeysInBlock,
 } from '../services/citation/citation-markup';
 import { canonicalPathOf } from '../services/papers/paper-paths';
+import { queueStyledCitationUpgrade } from './styled-citation-renderer';
 
 /** Never decorate inside rendered code, or inside links we already made. */
 const SKIP_ANCESTORS = 'code, pre, a, .md-embed-code';
@@ -65,6 +66,11 @@ function decorateCitations(
 /**
  * Rewrite one matched block, keeping brackets and `;` separators as plain
  * text so the rendered note still reads as valid Pandoc markup.
+ *
+ * The whole block is wrapped in a `.researchvault-cite-block` span carrying
+ * the per-key anchors — the C3 styled-citation renderer upgrades that span
+ * in place once the citeproc engine resolves (queued asynchronously; see
+ * `styled-citation-renderer.ts`).
  */
 function decorateBlock(
   block: string,
@@ -72,13 +78,21 @@ function decorateBlock(
   plugin: ResearchVaultPlugin,
   ctx: MarkdownPostProcessorContext,
 ): void {
+  const group = activeDocument.createElement('span');
+  group.addClass('researchvault-cite-block');
+  if (block.startsWith('[')) group.addClass('researchvault-cite-group');
+
   let cursor = 0;
   for (const { key, start, end } of locateKeysInBlock(block)) {
-    fragment.append(block.slice(cursor, start));
-    fragment.append(makeCitekeyAnchor(key, plugin, ctx));
+    group.append(block.slice(cursor, start));
+    const anchor = makeCitekeyAnchor(key, plugin, ctx);
+    anchor.dataset.rvKey = key;
+    group.append(anchor);
     cursor = end;
   }
-  fragment.append(block.slice(cursor));
+  group.append(block.slice(cursor));
+  fragment.append(group);
+  queueStyledCitationUpgrade(plugin, ctx, group);
 }
 
 function makeCitekeyAnchor(

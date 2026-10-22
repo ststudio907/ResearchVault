@@ -38,6 +38,13 @@ export interface CitationSettings {
   rateLimitRps: number;
   /** Token-bucket capacity (burst). Default 10. */
   rateLimitBurst: number;
+  /**
+   * C3: render style-formatted citations in reading view ("(Smith, 2020)")
+   * through the bundled citeproc engine. ON by default — the styled text is
+   * still clickable and the raw Pandoc markup is untouched in the file; turn
+   * off to keep reading view showing the plain `[@citekey]` links.
+   */
+  renderInNote: boolean;
 }
 
 export const DEFAULT_CITATION_SETTINGS: CitationSettings = {
@@ -48,6 +55,7 @@ export const DEFAULT_CITATION_SETTINGS: CitationSettings = {
   cacheMaxEntries: 500,
   rateLimitRps: 5,
   rateLimitBurst: 10,
+  renderInNote: true,
 };
 
 /**

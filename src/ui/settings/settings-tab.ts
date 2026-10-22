@@ -272,6 +272,25 @@ export class ResearchVaultSettingTab extends PluginSettingTab {
           await this.rv.saveSettings();
         });
       });
+
+    // C3: bundled citeproc rendering in reading view. Purely local — the
+    // engine and the vendored CSL styles ship inside the plugin; nothing is
+    // downloaded or sent. Off = the plain clickable `[@citekey]` links.
+    new Setting(root)
+      .setName('Render styled citations in reading view')
+      .setDesc(
+        'Show "(Smith, 2020)" instead of the raw [@citekey] markup, using the ' +
+          'project citation style. Links still open the paper note; the note ' +
+          'text on disk is never modified. Custom (vault .csl) styles keep the ' +
+          'plain links.',
+      )
+      .addToggle((toggle) => {
+        toggle.setValue(Boolean(this.rv.settings.citation.renderInNote));
+        toggle.onChange(async (value) => {
+          this.rv.settings.citation.renderInNote = value;
+          await this.rv.saveSettings();
+        });
+      });
   }
 
   // -------------------------------------------------------------------------
