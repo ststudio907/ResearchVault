@@ -95,6 +95,8 @@ export class PaperImportModal extends Modal {
   private submitBtn: HTMLButtonElement | null = null;
   /** Stable, pre-computed citekey shown next to the form. */
   private previewedCitekey = '';
+  /** Unsubscribe handle for the `citationStyleChanged` live-preview re-render. */
+  private styleUnsubscribe: (() => void) | null = null;
   /** Cached node under the PDF setting that displays the linked destination. */
   private pdfInfoEl: HTMLElement | null = null;
   /**
@@ -212,6 +214,12 @@ export class PaperImportModal extends Modal {
     // modal doesn't take extra space when nothing has happened yet.
     this.statusEl = contentEl.createDiv({ cls: 'researchvault-import-status' });
 
+    // C3.3 follow-up (dynamic style): re-render the live citekey preview when
+    // the effective citation style changes while this modal is open.
+    this.styleUnsubscribe = this.rv.eventBus.on('citationStyleChanged', () => {
+      this.refreshPreview();
+    });
+
     this.renderProjectRow(contentEl);
     this.renderMetadataRows(contentEl);
     this.renderPreview(contentEl);
@@ -222,6 +230,8 @@ export class PaperImportModal extends Modal {
   }
 
   onClose(): void {
+    this.styleUnsubscribe?.();
+    this.styleUnsubscribe = null;
     this.statusEl = null;
     this.contentEl.empty();
   }

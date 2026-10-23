@@ -164,6 +164,9 @@ export class ProjectManager {
     };
     this.replaceProject(next);
     await this.persist();
+    if (next.settings.citationStyle !== project.settings.citationStyle) {
+      this.plugin.eventBus.emit('citationStyleChanged', { projectId: next.id });
+    }
     this.plugin.eventBus.emit('projectChanged', next);
     return next;
   }

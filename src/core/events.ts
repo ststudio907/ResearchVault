@@ -60,4 +60,10 @@ export interface ResearchVaultEvents {
   citationLookupSucceeded: CitationLookupSucceeded;
   /** 4.1.A: Emitted on any citation-lookup failure (network, parse, disabled, etc.). */
   citationLookupFailed: CitationLookupFailed;
+  /**
+   * C3.3 follow-up chunk 2 — emitted when the effective citation style changes
+   * (a project's `settings.citationStyle` update). Subscribers (today: the
+   * paper-import live citekey preview) re-render against the new style.
+   */
+  citationStyleChanged: { projectId?: string };
 }
