@@ -34,7 +34,7 @@ function makeBlock(overrides: Partial<EvidenceBlock> = {}): EvidenceBlock {
 describe('renderEvidenceBlock', () => {
   it('renders citekey, numeric locator as p., and the bare anchor', () => {
     const out = renderEvidenceBlock(makeBlock({ locator: '42' }));
-    expect(out).toContain('#### [[smith_2023_test]] · p. 42');
+    expect(out).toContain('#### [@smith_2023_test] · p. 42');
     expect(out).toContain('> Attention is all you need.');
     expect(out.trimEnd().endsWith('<!-- ev:ev-1 -->')).toBe(true);
     // Footer is machine-only: no source link, no stance (group header carries it).
@@ -44,7 +44,7 @@ describe('renderEvidenceBlock', () => {
 
   it('writes non-numeric locators verbatim and omits missing ones', () => {
     const section = renderEvidenceBlock(makeBlock({ locator: '§3.2' }));
-    expect(section).toContain('#### [[smith_2023_test]] · §3.2');
+    expect(section).toContain('#### [@smith_2023_test] · §3.2');
     expect(renderEvidenceBlock(makeBlock())).not.toContain('p. ');
     // No locator → no `·` anywhere: heading and footer are both plain.
     expect(renderEvidenceBlock(makeBlock()).split('·')).toHaveLength(1);
@@ -149,12 +149,12 @@ describe('grouped evidence layout (2b format revision)', () => {
     expect(content).toContain('### Supports');
     expect(content).toContain('### Contradicts');
     expect(content).not.toContain('### Neutral');
-    expect(content).toContain('#### [[smith_2023_test]]');
-    expect(content).toContain('#### [[jones_2020_x]]');
+    expect(content).toContain('#### [@smith_2023_test]');
+    expect(content).toContain('#### [@jones_2020_x]');
     // Fixed group order regardless of array order (matches the hub card).
     expect(content.indexOf('### Supports')).toBeLessThan(content.indexOf('### Contradicts'));
     // Entries follow group order: supports group (smith) before contradicts (jones).
-    expect(content.indexOf('#### [[smith_2023_test]]')).toBeLessThan(content.indexOf('#### [[jones_2020_x]]'));
+    expect(content.indexOf('#### [@smith_2023_test]')).toBeLessThan(content.indexOf('#### [@jones_2020_x]'));
   });
 
   it('renders nothing for an empty evidence list', () => {

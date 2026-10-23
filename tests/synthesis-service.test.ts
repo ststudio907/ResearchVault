@@ -170,7 +170,7 @@ describe('SynthesisService.addEvidence / removeEvidence', () => {
     });
 
     const content = h.files.get(PATH) ?? '';
-    expect(content).toContain('#### [[smith_2023_test]] · p. 42');
+    expect(content).toContain('#### [@smith_2023_test] · p. 42');
     expect(content).toContain('> Loss scales as a power law.');
     expect(content).toContain('<!-- ev:'); // bare anchor footer
     expect(content).not.toContain('-- source:');
@@ -241,7 +241,7 @@ describe('SynthesisService.addEvidence / removeEvidence', () => {
     // The call-site flag is a transport hint, never persisted on the block.
     expect('allowEmptyText' in block).toBe(false);
     const content = h.files.get(PATH) ?? '';
-    expect(content).toContain('#### [[smith_2023_test]]');
+    expect(content).toContain('#### [@smith_2023_test]');
     expect(content).toContain('<!-- ev:'); // bare anchor footer
     // Empty text renders as a bare blockquote line, which parses back empty.
     expect(h.service.getById(seed.id)?.evidence[0]?.text).toBe('');

@@ -13,6 +13,7 @@
 import type { EvidenceBlock, EvidenceStance, SynthesisNote } from '../../types';
 import { EVIDENCE_STANCES } from '../../types';
 import { toLocalDateTime, fromFrontmatterDate } from '../../utils/format-date';
+import { formatCitationMarkup } from '../citation/citation-markup';
 
 /** Fallback body skeleton for a fresh synthesis note. */
 export const DEFAULT_SYNTHESIS_BODY = `## Thesis
@@ -139,10 +140,12 @@ export function renderSynthesisBody(
 }
 
 /**
- * Render one evidence block (1.1 Slice 2b format revision):
+ * Render one evidence block (1.1 Slice 2b format revision; citation form
+ * refreshed by C3.5 so the heading carries the D35 `[@citekey]` citation
+ * markup instead of a raw wikilink):
  *
  * ```
- * #### [[citekey]] · p. 42
+ * #### [@citekey] · p. 42
  *
  * > quoted text
  * > second line
@@ -152,13 +155,17 @@ export function renderSynthesisBody(
  *
  * Entries are `####` so the `## Evidence` section can group them under
  * `### <Stance>` headers (see `renderEvidenceSectionContent`); the parser
- * accepts both `####` (new) and `###` (legacy pre-grouping) entry headings.
- * The footer is machine-only: every human-readable field moved up — citekey
- * and locator into the heading, stance into the group header — leaving just
- * the invisible `<!-- ev:<id> -->` anchor that makes the block stable under
- * user edits and uniquely addressable for remove/update. Legacy blocks with
- * the old full footer still parse (see `EVIDENCE_FOOTER_RE`). Numeric
- * locators get the `p. ` prefix; anything else (sections, figures) is
+ * accepts both `####` (new) and `###` (legacy pre-grouping) entry headings. The citation is
+ * written via `formatCitationMarkup(key, 'parenthetical')` — the exact markup
+ * the insert-citation command emits — so the reading-view styled-citation
+ * renderer resolves the heading into the styled citation (e.g.
+ * `(Hogdon et al., 2022)`). The locator rides the heading after the citation
+ * bracket (`· p. 42`). The footer is machine-only: every human-readable field
+ * moved up — citekey and locator into the heading, stance into the group
+ * header — leaving just the invisible `<!-- ev:<id> -->` anchor that makes the
+ * block stable under user edits and uniquely addressable for remove/update.
+ * Legacy blocks with the old full footer still parse (see `EVIDENCE_FOOTER_RE`).
+ * Numeric locators get the `p. ` prefix; anything else (sections, figures) is
  * written verbatim.
  */
 export function renderEvidenceBlock(block: EvidenceBlock): string {
@@ -166,7 +173,7 @@ export function renderEvidenceBlock(block: EvidenceBlock): string {
   const locatorPart = block.locator && block.locator.trim()
     ? ` · ${formatLocator(block.locator.trim())}`
     : '';
-  const heading = `#### [[${block.citekey}]]${locatorPart}`;
+  const heading = `#### ${formatCitationMarkup(block.citekey, 'parenthetical')}${locatorPart}`;
   return `${heading}\n\n> ${quoted}\n\n<!-- ev:${block.id} -->`;
 }
 
@@ -250,6 +257,18 @@ const EVIDENCE_ANCHOR_RE = /^<!-- ev:([^ ]+) -->\s*$/;
 const STANCE_GROUP_RE = /^###\s+(Supports|Contradicts|Neutral)\s*$/;
 
 /**
+ * Matches a block entry heading in the current citation form, capturing an
+ * optional locator suffix: `#### [@citekey] · p. 42` (group 2) — the `[@citekey]`
+ * D35 citation markup (via `formatCitationMarkup(key, 'parenthetical')`) is
+ * what the reading-view styled-citation renderer resolves into the styled
+ * citation; the locator rides after the citation bracket (`· p. 42`). A bare
+ * `### [@citekey]` is the legacy pre-grouping heading shape, accepted here so
+ * pre-revision notes hydrate unchanged; the legacy `[[citekey]]` wikilink form
+ * is still handled by the legacy matcher below.
+ */
+const EVIDENCE_CITATION_HEADING_RE = /^#{3,4}\s+\[@([^\]|]+)\](?:\s·\s(.+?))?\s*$/;
+
+/**
  * Matches a block entry heading, capturing an optional locator suffix:
  * `#### [[citekey]] · p. 42` (group 2). A bare `### [[citekey]]` is the
  * legacy pre-grouping heading (no locator there — legacy blocks carry the
@@ -283,7 +302,7 @@ function collectBlockAbove(lines: string[], fromIndex: number): CollectedBlock {
       continue;
     }
     if (line.trim() === '') continue;
-    const headingMatch = EVIDENCE_HEADING_RE.exec(line);
+    const headingMatch = EVIDENCE_CITATION_HEADING_RE.exec(line) ?? EVIDENCE_HEADING_RE.exec(line);
     if (headingMatch) {
       citekeyFromHeading = headingMatch[1];
       locatorFromHeading = headingMatch[2];
