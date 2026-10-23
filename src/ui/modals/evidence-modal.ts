@@ -17,12 +17,20 @@ import type { ResearchVaultPlugin } from '../../core/plugin';
 import type { EvidenceBlock, EvidenceStance, Paper, SynthesisNote } from '../../types';
 import { EVIDENCE_STANCES } from '../../types';
 import { applyStandardModalWidth } from './modal-width';
+import { renderStyledCitationText } from '../styled-citation-renderer';
 
 const STANCE_LABELS: Record<EvidenceStance, string> = {
   supports: 'Supports',
   contradicts: 'Contradicts',
   neutral: 'Neutral',
 };
+
+/**
+ * Styled-citation display cache for evidence listings (C3.4): keyed
+ * `${projectId}::${citekey}` → styled citation text, populated by the add-
+ * evidence flow; falls back to the raw citekey when rendering is unavailable.
+ */
+const styledEvidenceCache = new Map<string, string>();
 
 export class AddEvidenceModal extends Modal {
   private citekey = '';
@@ -44,7 +52,7 @@ export class AddEvidenceModal extends Modal {
     super(app);
   }
 
-  onOpen(): void {
+  async onOpen(): Promise<void> {
     const { contentEl } = this;
     applyStandardModalWidth(this);
     contentEl.empty();
@@ -66,18 +74,34 @@ export class AddEvidenceModal extends Modal {
     // Preset paper wins (row-button flow); otherwise first by citekey order.
     this.citekey = this.presetPaper?.citekey ?? papers[0]?.citekey ?? '';
 
+    const sourceOptions = await Promise.all(
+      papers.map(async (paper) => ({
+        paper,
+        styled: await renderStyledCitationText(this.plugin, paper.citekey, {
+          projectId: this.note.projectId,
+        }),
+      })),
+    );
+
     new Setting(contentEl)
       .setName('Source')
-      .setDesc('Citekey of the paper this evidence comes from.')
+      .setDesc('Source paper — shown as a styled citation (apa, chicago, …); the citekey is what gets stored.')
       .addDropdown((dd) => {
-        for (const paper of papers) {
-          dd.addOption(paper.citekey, `${paper.citekey}  ${paper.title}`);
+        for (const { paper, styled } of sourceOptions) {
+          dd.addOption(paper.citekey, styled ?? `${paper.citekey}  ${paper.title}`);
         }
         dd.setValue(this.citekey);
         dd.onChange((v) => {
           this.citekey = v;
         });
       });
+
+    for (const { paper, styled } of sourceOptions) {
+      styledEvidenceCache.set(
+        `${this.note.projectId}::${paper.citekey}`,
+        styled ?? `${paper.citekey}  ${paper.title}`,
+      );
+    }
 
     new Setting(contentEl)
       .setName('Stance')
@@ -175,7 +199,8 @@ export class EvidencePickerModal extends FuzzySuggestModal<EvidenceBlock> {
   getItemText(block: EvidenceBlock): string {
     const locator = block.locator ? ` · ${block.locator}` : '';
     const excerpt = block.text.length > 60 ? `${block.text.slice(0, 60)}…` : block.text;
-    return `${block.citekey}${locator}  ${STANCE_LABELS[block.stance]}  — ${excerpt}`;
+    const styled = styledEvidenceCache.get(`${this.note.projectId}::${block.citekey}`) ?? null;
+    return `${styled ?? block.citekey}${locator}  ${STANCE_LABELS[block.stance]}  — ${excerpt}`;
   }
 
   onChooseItem(block: EvidenceBlock): void {
