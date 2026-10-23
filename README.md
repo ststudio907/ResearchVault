@@ -2,6 +2,18 @@
 
 An Obsidian plugin that turns your vault into a **research operating system**: manage research projects, track papers, capture quotes from your sources, and keep everything as plain Markdown in your vault.
 
+ResearchVault is an Obsidian plugin. If you're new to Obsidian plugins: a plugin is an add-on that extends Obsidian with extra commands, settings, and views. ResearchVault adds the research workflow itself — project tracking, paper management, citation handling, and bibliography export — while keeping your notes as ordinary Markdown files in your vault.
+
+## What is ResearchVault?
+
+ResearchVault helps you plan, collect, and write about research without leaving plain Markdown behind.
+
+- **Plan** research into projects — each project is a folder (with `papers`, `notes`, and `literature` subfolders) whose papers are listed in a sidebar view.
+- **Track papers** — add papers by DOI, CSL-JSON, or manually; attach PDFs to a shared library; keep reading status and priority.
+- **Capture quotes** from your sources while you read.
+- **Write with citations** — insert `[@citekey]` / `@citekey` markers that render as formatted citations in your notes.
+- **Export** — rebuild a bibliography and compile notes into formatted Word/PDF documents via pandoc.
+
 ## Features
 
 - **Projects** — Create, switch, and delete research projects. Each project is a folder (with `papers`, `notes`, and `literature` subfolders) whose contents are filtered into the sidebar view. Exactly one project is active at a time; the **Manage projects** command handles switching, creating, and deleting from one place.
@@ -43,7 +55,10 @@ Once it's in the community catalog, it will be installable directly from **Setti
 2. Run **Add paper** to log your first paper — use DOI lookup or CSL-JSON paste to skip manual typing, and attach the PDF straight from the form.
 3. Add the same paper to another project: its PDF in the shared library is linked automatically, with no duplicate copy.
 4. Select text in any note and run **Capture quote** to attach it to a paper.
-5. Click the library ribbon icon (or run **Open sidebar**) and pin the view to your sidebar for day-to-day browsing.
+5. Write your first note, then run **Insert citation** and pick a paper: Enter inserts `[@citekey]`, Shift+Enter inserts `@citekey`. The citation renders as formatted text — a single citation, a grouped cluster like `(Jones, 2019; Smith & Jones, 2020)`, or a narrative citation like `Smith & Jones (2020)` — using your project's citation style, entirely offline, and still clickable to the paper's note.
+6. Click the library ribbon icon (or run **Open sidebar**) and pin the view to your sidebar for day-to-day browsing.
+
+From there, everything else — shared PDFs, quote capture, BibTeX export, Word/PDF export — hangs off your projects. See **Features** above for the full list.
 
 ## Exporting to Word or PDF (pandoc)
 
