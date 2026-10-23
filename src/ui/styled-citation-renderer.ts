@@ -202,6 +202,61 @@ export function resolvePaper(plugin: ResearchVaultPlugin, key: string): Paper | 
   return plugin.paperService.getByCitekey(key) ?? null;
 }
 
+/**
+ * C3.3 — render one citekey's styled citation text (e.g. `(Smith, 2020)`)
+ * through the bundled citeproc engine, for the paper-import live citekey
+ * preview. Resolves the paper (project-scoped, then library-wide), maps it
+ * through the C3.1 `paperToCslJson` mapper, and asks the engine for the
+ * printed form of a single parenthetical group.
+ *
+ * Returns `null` whenever rendering is unavailable — no resolvable paper, no
+ * bundled style for the scope, or an engine failure — so callers degrade to
+ * the raw citekey instead of blocking the preview.
+ */
+export async function renderStyledCitationText(
+  plugin: ResearchVaultPlugin,
+  citekey: string,
+  options: { projectId?: string; narrative?: boolean } = {},
+): Promise<string | null> {
+  const key = citekey.trim();
+  if (!key) return null;
+  const paper = options.projectId
+    ? plugin.paperService.getByCitekey(key, options.projectId) ?? plugin.paperService.getByCitekey(key)
+    : plugin.paperService.getByCitekey(key);
+  if (!paper) return null;
+  const styleXml = await resolveStyleXmlForProject(plugin, options.projectId);
+  if (!styleXml) return null;
+  const localeXml = await inflateGzipBase64(CSL_LOCALES['en-US'] ?? '');
+  try {
+    const renderer = new CiteprocRenderer({ [paper.citekey]: paperToCslJson(paper) }, styleXml, localeXml);
+    const rendered = renderer.renderGroups([{ keys: [paper.citekey], narrative: options.narrative ?? false }]);
+    const text = rendered[0];
+    return typeof text === 'string' && text.length > 0 ? text : null;
+  } catch {
+    // Cosmetic failure — rendering is unavailable, fall back to the raw key.
+    return null;
+  }
+}
+
+/**
+ * CSL style XML for an explicit project (the C3.3 preview path — the note the
+ * user is typing in does not exist yet, so the scope comes from the form's
+ * selected project rather than from a source file path). `custom` (or an
+ * unknown style) returns null, mirroring the note-scoped resolver above.
+ */
+async function resolveStyleXmlForProject(
+  plugin: ResearchVaultPlugin,
+  projectId?: string,
+): Promise<string | null> {
+  const project = projectId
+    ? plugin.projectManager.getAllProjects().find((p) => p.id === projectId) ?? null
+    : plugin.projectManager.getActiveProject();
+  const style = project?.settings.citationStyle ?? plugin.settings.globalCitationStyle;
+  const bundled = CSL_BUNDLED[style];
+  if (!bundled) return null;
+  return await inflateGzipBase64(bundled);
+}
+
 export async function openPaperNote(
   plugin: ResearchVaultPlugin,
   paper: Paper,

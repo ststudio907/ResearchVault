@@ -38,6 +38,7 @@ import { READING_STATUSES } from '../../types';
 import { generateUniqueCitekey, slugify } from '../../utils/citekey';
 import { applyStandardModalWidth } from './modal-width';
 import { cslToManualInput } from '../../services/citation/csl-to-paper';
+import { renderStyledCitationText } from '../styled-citation-renderer';
 import type { CslJsonRecord } from '../../services/citation/types';
 import { CitationSearchModal } from './citation-search-modal';
 import { findSamePaper, normalizePdfLibraryFolder } from '../../services/papers/paper-matching';
@@ -613,6 +614,23 @@ export class PaperImportModal extends Modal {
     this.previewedCitekey = candidate ?? '';
     this.previewEl.setText(candidate ? `${candidate}.md` : '— (need title + author + 4-digit year)');
     this.updateSubmitEnabled();
+    if (candidate) void this.renderCitekeyPreview(candidate);
+  }
+
+  /**
+   * C3.3 — upgrade the live citekey preview to the styled citation via the
+   * bundled citeproc engine (project style). Falls back to the raw citekey
+   * text whenever rendering is unavailable (feature off, no resolvable paper,
+   * no bundled style, or an engine failure).
+   */
+  private async renderCitekeyPreview(candidate: string): Promise<void> {
+    if (!this.previewEl) return;
+    const rendered = this.rv.settings.citation.renderInNote
+      ? await renderStyledCitationText(this.rv, candidate, { projectId: this.form.projectId || undefined })
+      : null;
+    // A newer preview pass may have superseded this one while we awaited.
+    if (candidate !== this.previewedCitekey) return;
+    this.previewEl.setText(rendered ?? `${candidate}.md`);
   }
 
   /**
