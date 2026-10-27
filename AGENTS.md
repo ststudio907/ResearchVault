@@ -267,3 +267,33 @@ this.registerInterval(
 - Developer policies: https://docs.obsidian.md/Developer+policies
 - Plugin guidelines: https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines
 - Style guide: https://help.obsidian.md/style-guide
+
+## Working with AI agents
+
+Agent behaviour in this repo is governed by repo-local instructions:
+
+- `dev/agents/standing-instructions.md` — the rules (R1–R11): one phase at a
+  time, scope lock, the gate sequence, the evidence format, commit and docs
+  discipline.
+- `dev/handoffs/README.md` — what a session handoff contains, plus a template.
+- `dev/agents/drift-check.md` — the plan-vs-code drift check prompt.
+
+Non-negotiables:
+
+- **One phase at a time.** Finish, run the gates, report, then wait for
+  go-ahead — no reaching into the next phase.
+- **Gates before claims.** `npx tsc --noEmit`, `npx tsc --noEmit -p
+  tests/tsconfig.json`, `npm run lint`, `npm test`, `npm run build` must pass
+  before anything is reported as working.
+- **Evidence, not assurances.** Every report ends with `GATES / FILES CHANGED /
+  CLAIMS / UNCERTAINTY`; each acceptance criterion cites the test that proves
+  it or says `UNPROVEN`.
+- **No scope creep.** Touch only the files named in the phase (plus
+  `dev/plans/plan.md` for the §13 log entry). If another file is needed, stop
+  and explain first.
+
+`dev/` is **not tracked in the public repo** — it is listed in `.gitignore` and
+backed up in the separate private `ResearchVault-dev` repo. It is not
+"local-only": it is version-controlled and pushed to that remote, so work there
+still produces real commits (one commit per repo per phase).
+
