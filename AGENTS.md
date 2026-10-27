@@ -272,11 +272,13 @@ this.registerInterval(
 
 Agent behaviour in this repo is governed by repo-local instructions:
 
-- `dev/agents/standing-instructions.md` — the rules (R1–R12): one phase at a
+- `dev/agents/standing-instructions.md` — the rules (R1–R15): one phase at a
   time, scope lock, the gate sequence, the evidence format, commit and docs
   discipline.
 - `dev/handoffs/README.md` — what a session handoff contains, plus a template.
 - `dev/agents/drift-check.md` — the plan-vs-code drift check prompt.
+- `dev/agents/known-traps.md` — append-only list of repo-specific hazards
+  actually hit here, with workarounds.
 
 Non-negotiables:
 

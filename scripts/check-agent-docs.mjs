@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve('.');
 const DEV_DIR = join(ROOT, 'dev');
-const RULE_COUNT = 12;
+const RULE_COUNT = 15;
 
 const failures = [];
 
@@ -50,12 +50,15 @@ if (rules !== null) {
 	}
 }
 
-// 2. The drift check stays report-only.
+// 2. The drift check stays report-only, and the trap list is maintained.
 const driftPath = join(DEV_DIR, 'agents', 'drift-check.md');
 const drift = readOrFail('drift-check.md', driftPath);
 if (drift !== null && !drift.includes('Report only, fix nothing.')) {
 	failures.push('drift-check.md: missing "Report only, fix nothing."');
 }
+
+const trapsPath = join(DEV_DIR, 'agents', 'known-traps.md');
+readOrFail('known-traps.md', trapsPath);
 
 // 3. AGENTS.md points at all three agent files and states the rule range.
 const agentsPath = join(ROOT, 'AGENTS.md');
