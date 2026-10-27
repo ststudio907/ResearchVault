@@ -68,7 +68,6 @@ export type ExecFileFn = (
 interface FsPromises {
 	writeFile(path: string, data: Uint8Array | string): Promise<void>;
 	readFile(path: string): Promise<Uint8Array>;
-	unlink(path: string): Promise<void>;
 	mkdtemp(prefix: string): Promise<string>;
 	rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>;
 }
@@ -229,12 +228,16 @@ export class ExportService {
 		const bib = await this.ensureBibliography(project);
 		if (!bib) return { outputPath: '', outputAbsPath: '', format: options.format };
 
-		const csl = await this.resolveCslPath(options);
 		const outName = `${file.basename}.${options.format}`;
 
 		// Work through the OS temp dir, then import the result into the vault
 		// next to the note. Never spawn with vault-internal output paths —
 		// pandoc writes raw bytes and the vault API stays the single writer.
+		//
+		// ONE temp root per export holds both the materialised CSL and the
+		// compiled document, so a single `rm` in the `finally` owns the whole
+		// lifetime: CSL creation/write failure, pandoc failure, and vault-write
+		// failure all leave nothing behind.
 		const fs = nodeRequire('node:fs/promises') as FsPromises;
 		const nodePath = nodeRequire('node:path') as NodePath;
 		const os = nodeRequire('node:os') as NodeOs;
@@ -242,6 +245,7 @@ export class ExportService {
 
 		try {
 			workDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'researchvault-export-'));
+			const cslPath = await this.resolveCslPath(options, workDir);
 			const outAbs = nodePath.join(workDir, outName);
 			const adapter = this.plugin.app.vault.adapter as unknown as { getBasePath(): string };
 			const vaultRoot = adapter.getBasePath();
@@ -251,7 +255,7 @@ export class ExportService {
 			const args = buildPandocArgs({
 				noteAbsPath: noteAbs,
 				bibliographyAbsPath: nodePath.join(vaultRoot, bib),
-				cslAbsPath: csl.path,
+				cslAbsPath: cslPath,
 				format: options.format,
 				outputAbsPath: outAbs,
 			});
@@ -271,14 +275,12 @@ export class ExportService {
 			const outputAbsPath = nodePath.join(vaultRoot, targetPath);
 			return { outputPath: targetPath, outputAbsPath, format: options.format };
 		} finally {
-			// Both temp dirs are removed on every exit path — success, pandoc
-			// failure, or a vault write failure. Leaving them behind leaked two
-			// directories per export, unbounded.
+			// The one temp root covers the CSL file and the compiled document,
+			// so this is the only cleanup site: success, pandoc failure, CSL
+			// write failure, or a vault-write failure. Leaking it left a
+			// directory behind on every export, unbounded.
 			if (workDir !== null) {
 				await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
-			}
-			if (csl.tempDir !== null) {
-				await fs.rm(csl.tempDir, { recursive: true, force: true }).catch(() => {});
 			}
 		}
 	}
@@ -302,18 +304,17 @@ export class ExportService {
 	}
 
 	/**
-	 * Materialise the CSL file for this run. Built-ins are inflated from the
-	 * compressed bundle into a temp file; `custom` is copied out of the vault.
-	 * Either way pandoc reads a real filesystem path (desktop only).
-	 *
-	 * Returns the file path plus the temp directory it lives in (`null` when no
-	 * temp dir was created, i.e. the custom-style path). The caller owns
-	 * cleanup — see the `finally` in `exportNote`.
+	 * Materialise the CSL file for this run **inside the caller's temp work
+	 * dir**. Built-ins are inflated from the compressed bundle; `custom` is
+	 * read out of the vault and written into `workDir`. Either way pandoc needs
+	 * a real filesystem path (desktop only), and the file is always written into
+	 * `workDir` created by `exportNote` — so `exportNote`'s single `finally`
+	 * owns the directory's lifetime and a throw from `writeFile` cannot orphan
+	 * a directory.
 	 */
-	private async resolveCslPath(options: ExportOptions): Promise<{ path: string; tempDir: string | null }> {
-		const fs = nodeRequire('node:fs/promises') as FsPromises;
+	private async resolveCslPath(options: ExportOptions, workDir: string): Promise<string> {
 		const nodePath = nodeRequire('node:path') as NodePath;
-		const os = nodeRequire('node:os') as NodeOs;
+		const fs = nodeRequire('node:fs/promises') as FsPromises;
 
 		let xml: string;
 		if (isBundledStyle(options.style)) {
@@ -332,10 +333,9 @@ export class ExportService {
 			xml = await this.plugin.app.vault.cachedRead(cslFile);
 		}
 
-		const dir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'researchvault-csl-'));
-		const cslPath = nodePath.join(dir, 'style.csl');
+		const cslPath = nodePath.join(workDir, 'style.csl');
 		await fs.writeFile(cslPath, xml);
-		return { path: cslPath, tempDir: dir };
+		return cslPath;
 	}
 
 	/**

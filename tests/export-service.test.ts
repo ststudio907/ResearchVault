@@ -183,14 +183,18 @@ describe('showItemInFolderFromModule', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 1.1.3.C.1 — temp-dir hygiene
+// 1.1.3.C.1 / 2b — temp-dir hygiene
 //
-// `exportNote` creates two OS temp dirs per run (`researchvault-export-*` for
-// the compiled document, `researchvault-csl-*` for the materialised style) and
-// previously removed neither directory — only the output file inside the first.
-// These tests drive the real `exportNote` through the same `window.require`
-// seam the desktop path uses, with an in-memory fs and an injected
-// `execFile` stub, so no real filesystem or child process is touched.
+// `exportNote` used to mkdtemp twice per run (`researchvault-export-*` and
+// `researchvault-csl-*`) and removed neither directory — only the output file
+// inside the first. It now creates ONE root per export, materialises `style.csl`
+// inside it, and removes that root in a single `finally`, so these tests assert
+// the root is gone on every exit path: success, pandoc failure, CSL-write
+// failure, vault-write failure.
+//
+// They drive the real `exportNote` through the same `window.require` seam the
+// desktop path uses, with an in-memory fs and an injected `execFile` stub, so no
+// real filesystem or child process is touched.
 // ---------------------------------------------------------------------------
 
 interface FakeFs {
@@ -200,22 +204,27 @@ interface FakeFs {
   api: Record<string, unknown>;
 }
 
-function makeFakeFs(): FakeFs {
+interface FakeFsOptions {
+  /** Make the first `writeFile` throw — exercises a CSL-write failure. */
+  failWrite?: boolean;
+}
+
+function makeFakeFs(options: FakeFsOptions = {}): FakeFs {
   const dirs = new Set<string>();
   const files = new Map<string, Uint8Array>();
   const removed: string[] = [];
   let seq = 0;
+  let writes = 0;
   const api = {
     writeFile: async (path: string, data: Uint8Array | string): Promise<void> => {
+      writes += 1;
+      if (options.failWrite && writes === 1) throw new Error('EACCES: simulated write failure');
       files.set(path, typeof data === 'string' ? new TextEncoder().encode(data) : data);
     },
     readFile: async (path: string): Promise<Uint8Array> => {
       const found = files.get(path);
       if (!found) throw new Error(`ENOENT: ${path}`);
       return found;
-    },
-    unlink: async (path: string): Promise<void> => {
-      files.delete(path);
     },
     mkdtemp: async (prefix: string): Promise<string> => {
       seq += 1;
@@ -249,7 +258,7 @@ function installNodeModules(fake: FakeFs, execFile: ExecFileFn): void {
   vi.stubGlobal('window', { require: (id: string) => modules[id] });
 }
 
-function makePlugin(): ResearchVaultPlugin {
+function makePlugin(options: { failCreateBinary?: boolean } = {}): ResearchVaultPlugin {
   const project = {
     id: 'p1',
     name: 'Proj',
@@ -270,7 +279,10 @@ function makePlugin(): ResearchVaultPlugin {
       vault: {
         adapter: { getBasePath: () => '/vault' },
         getAbstractFileByPath: () => null,
-        createBinary: async () => undefined,
+        createBinary: async () => {
+          if (options.failCreateBinary) throw new Error('simulated vault write failure');
+          return undefined;
+        },
         modifyBinary: async () => undefined,
       },
     },
@@ -288,12 +300,19 @@ function makeNote(): TFile {
   return note;
 }
 
-describe('exportNote temp-dir cleanup (1.1.3.C.1)', () => {
+describe('exportNote temp-dir cleanup (1.1.3.C.1 / 2b)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it('removes both temp dirs after a successful export', async () => {
+  /** Assert one export root was created and removed; no CSL dir exists anymore. */
+  function expectSingleRootCleaned(fake: FakeFs): void {
+    expect(fake.dirs.size).toBe(0);
+    expect(fake.removed.filter((p) => p.includes('researchvault-export-'))).toHaveLength(1);
+    expect(fake.removed.filter((p) => p.includes('researchvault-csl-'))).toHaveLength(0);
+  }
+
+  it('removes the temp root after a successful export', async () => {
     const fake = makeFakeFs();
     const execFileOk: ExecFileFn = (_file, args, _options, callback) => {
       const outAbs = args.at(-1) ?? '';
@@ -308,12 +327,10 @@ describe('exportNote temp-dir cleanup (1.1.3.C.1)', () => {
     });
 
     expect(result.outputPath).toBe('Proj/notes/draft.docx');
-    expect(fake.dirs.size).toBe(0);
-    expect(fake.removed.filter((p) => p.includes('researchvault-export-'))).toHaveLength(1);
-    expect(fake.removed.filter((p) => p.includes('researchvault-csl-'))).toHaveLength(1);
+    expectSingleRootCleaned(fake);
   });
 
-  it('removes both temp dirs when pandoc fails', async () => {
+  it('removes the temp root when pandoc fails', async () => {
     const fake = makeFakeFs();
     const execFileFail: ExecFileFn = (_file, _args, _options, callback) => {
       callback(
@@ -328,8 +345,39 @@ describe('exportNote temp-dir cleanup (1.1.3.C.1)', () => {
       new ExportService(makePlugin()).exportNote(makeNote(), { style: 'apa', format: 'docx' }),
     ).rejects.toThrow(/pandoc failed: pandoc: missing template/);
 
-    expect(fake.dirs.size).toBe(0);
-    expect(fake.removed.filter((p) => p.includes('researchvault-export-'))).toHaveLength(1);
-    expect(fake.removed.filter((p) => p.includes('researchvault-csl-'))).toHaveLength(1);
+    expectSingleRootCleaned(fake);
+  });
+
+  it('removes the temp root when the CSL write throws, and propagates the error', async () => {
+    const fake = makeFakeFs({ failWrite: true });
+    const execFileNever: ExecFileFn = () => {
+      throw new Error('pandoc must not run when the CSL write failed');
+    };
+    installNodeModules(fake, execFileNever);
+
+    await expect(
+      new ExportService(makePlugin()).exportNote(makeNote(), { style: 'apa', format: 'docx' }),
+    ).rejects.toThrow(/simulated write failure/);
+
+    expectSingleRootCleaned(fake);
+  });
+
+  it('removes the temp root when the vault write throws after pandoc succeeds', async () => {
+    const fake = makeFakeFs();
+    const execFileOk: ExecFileFn = (_file, args, _options, callback) => {
+      const outAbs = args.at(-1) ?? '';
+      fake.files.set(outAbs, new TextEncoder().encode('docx-bytes'));
+      callback(null, '', '');
+    };
+    installNodeModules(fake, execFileOk);
+
+    await expect(
+      new ExportService(makePlugin({ failCreateBinary: true })).exportNote(makeNote(), {
+        style: 'apa',
+        format: 'docx',
+      }),
+    ).rejects.toThrow(/simulated vault write failure/);
+
+    expectSingleRootCleaned(fake);
   });
 });
