@@ -8,7 +8,7 @@
 
 ## Environment & tooling
 
-- Node.js: use current LTS (Node 18+ recommended).
+- Node.js: use current LTS — **Node 22+ required** (CI matrix is `22.x`/`24.x`; a dependency needs ≥22.19.0, so the old 20.x leg was dropped 2026-10-23).
 - **Package manager: npm** (required for this sample - `package.json` defines npm scripts and dependencies).
 - **Bundler: esbuild** (required for this sample - `esbuild.config.mjs` and build scripts depend on it). Alternative bundlers like Rollup or webpack are acceptable for other projects if they bundle all external dependencies into `main.js`.
 - Types: `obsidian` type definitions.
@@ -37,7 +37,7 @@ npm run build
 
 - ESLint is preconfigured with `eslint-plugin-obsidianmd` for Obsidian-specific rules.
 - Run `npm run lint` to lint the project.
-- A GitHub Action automatically lints every commit on all branches.
+- `.github/workflows/ci.yml` runs build + lint + test + test type-checking on every push and pull request.
 
 ## File & folder conventions
 
@@ -272,7 +272,7 @@ this.registerInterval(
 
 Agent behaviour in this repo is governed by repo-local instructions:
 
-- `dev/agents/standing-instructions.md` — the rules (R1–R11): one phase at a
+- `dev/agents/standing-instructions.md` — the rules (R1–R12): one phase at a
   time, scope lock, the gate sequence, the evidence format, commit and docs
   discipline.
 - `dev/handoffs/README.md` — what a session handoff contains, plus a template.
