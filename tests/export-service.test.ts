@@ -1,24 +1,30 @@
 // tests/export-service.test.ts
 //
-// Unit coverage for the 1.1 "Cite & ship" export (D39/D40). Only the pure
-// decision logic is exercised here — the pandoc spawn itself is the desktop
-// boundary and is verified in the manual smoke (no child_process in tests).
+// Unit coverage for the 1.1 "Cite & ship" export (D39/D40). The pure decision
+// logic is exercised directly; the `exportNote` flow is driven through the same
+// lazy `window.require` seam the desktop path uses, with an in-memory fs and an
+// injected `execFile` stub — no real filesystem and no real child process.
 // The vendored CSL bundle IS round-tripped: each entry must inflate to real
 // CSL XML, or every built-in export would fail in the wild.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gunzipSync } from 'node:zlib';
+import * as nodePath from 'node:path';
 
 import {
   BUNDLED_CSL_STYLES,
+  ExportService,
   buildPandocArgs,
   execFileFromModule,
   findProjectForPath,
   isBundledStyle,
   pandocCandidates,
   showItemInFolderFromModule,
+  type ExecFileFn,
 } from '../src/services/citation/export-service';
 import { CSL_BUNDLED } from '../src/services/citation/csl-bundle.generated';
+import { TFile } from 'obsidian';
+import type { ResearchVaultPlugin } from '../src/core/plugin';
 import type { Project } from '../src/types';
 
 /** Base64 → bytes without the `Buffer` global (no-undef in test lint env). */
@@ -173,5 +179,157 @@ describe('showItemInFolderFromModule', () => {
 
   it('refuses an electron module without shell.showItemInFolder', () => {
     expect(() => showItemInFolderFromModule({}, '/x')).toThrow(/showItemInFolder/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.1.3.C.1 — temp-dir hygiene
+//
+// `exportNote` creates two OS temp dirs per run (`researchvault-export-*` for
+// the compiled document, `researchvault-csl-*` for the materialised style) and
+// previously removed neither directory — only the output file inside the first.
+// These tests drive the real `exportNote` through the same `window.require`
+// seam the desktop path uses, with an in-memory fs and an injected
+// `execFile` stub, so no real filesystem or child process is touched.
+// ---------------------------------------------------------------------------
+
+interface FakeFs {
+  dirs: Set<string>;
+  files: Map<string, Uint8Array>;
+  removed: string[];
+  api: Record<string, unknown>;
+}
+
+function makeFakeFs(): FakeFs {
+  const dirs = new Set<string>();
+  const files = new Map<string, Uint8Array>();
+  const removed: string[] = [];
+  let seq = 0;
+  const api = {
+    writeFile: async (path: string, data: Uint8Array | string): Promise<void> => {
+      files.set(path, typeof data === 'string' ? new TextEncoder().encode(data) : data);
+    },
+    readFile: async (path: string): Promise<Uint8Array> => {
+      const found = files.get(path);
+      if (!found) throw new Error(`ENOENT: ${path}`);
+      return found;
+    },
+    unlink: async (path: string): Promise<void> => {
+      files.delete(path);
+    },
+    mkdtemp: async (prefix: string): Promise<string> => {
+      seq += 1;
+      const dir = `${prefix}${seq}`;
+      dirs.add(dir);
+      return dir;
+    },
+    rm: async (path: string): Promise<void> => {
+      dirs.delete(path);
+      removed.push(path);
+      for (const key of [...files.keys()]) {
+        if (key.startsWith(path)) files.delete(key);
+      }
+    },
+  };
+  return { dirs, files, removed, api };
+}
+
+/** Install the fake node modules behind the plugin's lazy `window.require` seam. */
+function installNodeModules(fake: FakeFs, execFile: ExecFileFn): void {
+  const modules: Record<string, unknown> = {
+    'node:fs/promises': fake.api,
+    'node:path': nodePath,
+    'node:os': { tmpdir: () => '/tmp' },
+    // The bundled CSL payload is bypassed: the style file's *location* is what
+    // these tests are about, not its contents.
+    'node:zlib': { gunzipSync: (bytes: Uint8Array) => bytes },
+    'node:child_process': { execFile },
+  };
+  // `vi.stubGlobal` rather than touching `globalThis` (obsidianmd/no-global-this).
+  vi.stubGlobal('window', { require: (id: string) => modules[id] });
+}
+
+function makePlugin(): ResearchVaultPlugin {
+  const project = {
+    id: 'p1',
+    name: 'Proj',
+    folderPath: 'Proj',
+    settings: { citationStyle: 'apa' },
+  } as unknown as Project;
+  const plugin = {
+    settings: { pandocPath: 'pandoc' },
+    projectManager: {
+      getAllProjects: () => [project],
+      updateProject: async () => project,
+    },
+    bibliographyService: {
+      bibliographyPath: () => 'Proj/bibliography.bib',
+      exportProjectBibliography: async () => ({ path: 'Proj/bibliography.bib' }),
+    },
+    app: {
+      vault: {
+        adapter: { getBasePath: () => '/vault' },
+        getAbstractFileByPath: () => null,
+        createBinary: async () => undefined,
+        modifyBinary: async () => undefined,
+      },
+    },
+  };
+  return plugin as unknown as ResearchVaultPlugin;
+}
+
+function makeNote(): TFile {
+  const note = new TFile();
+  note.path = 'Proj/notes/draft.md';
+  note.basename = 'draft';
+  // The real TFile carries `parent`; the test mock does not, so attach the
+  // minimum the export path reads (it decides where the output lands).
+  Object.assign(note, { parent: { path: 'Proj/notes' } });
+  return note;
+}
+
+describe('exportNote temp-dir cleanup (1.1.3.C.1)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('removes both temp dirs after a successful export', async () => {
+    const fake = makeFakeFs();
+    const execFileOk: ExecFileFn = (_file, args, _options, callback) => {
+      const outAbs = args.at(-1) ?? '';
+      fake.files.set(outAbs, new TextEncoder().encode('docx-bytes'));
+      callback(null, '', '');
+    };
+    installNodeModules(fake, execFileOk);
+
+    const result = await new ExportService(makePlugin()).exportNote(makeNote(), {
+      style: 'apa',
+      format: 'docx',
+    });
+
+    expect(result.outputPath).toBe('Proj/notes/draft.docx');
+    expect(fake.dirs.size).toBe(0);
+    expect(fake.removed.filter((p) => p.includes('researchvault-export-'))).toHaveLength(1);
+    expect(fake.removed.filter((p) => p.includes('researchvault-csl-'))).toHaveLength(1);
+  });
+
+  it('removes both temp dirs when pandoc fails', async () => {
+    const fake = makeFakeFs();
+    const execFileFail: ExecFileFn = (_file, _args, _options, callback) => {
+      callback(
+        Object.assign(new Error('boom'), { stderr: 'pandoc: missing template' }),
+        '',
+        'pandoc: missing template',
+      );
+    };
+    installNodeModules(fake, execFileFail);
+
+    await expect(
+      new ExportService(makePlugin()).exportNote(makeNote(), { style: 'apa', format: 'docx' }),
+    ).rejects.toThrow(/pandoc failed: pandoc: missing template/);
+
+    expect(fake.dirs.size).toBe(0);
+    expect(fake.removed.filter((p) => p.includes('researchvault-export-'))).toHaveLength(1);
+    expect(fake.removed.filter((p) => p.includes('researchvault-csl-'))).toHaveLength(1);
   });
 });

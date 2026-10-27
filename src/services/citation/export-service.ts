@@ -70,6 +70,7 @@ interface FsPromises {
 	readFile(path: string): Promise<Uint8Array>;
 	unlink(path: string): Promise<void>;
 	mkdtemp(prefix: string): Promise<string>;
+	rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>;
 }
 
 interface NodePath {
@@ -228,7 +229,7 @@ export class ExportService {
 		const bib = await this.ensureBibliography(project);
 		if (!bib) return { outputPath: '', outputAbsPath: '', format: options.format };
 
-		const cslPath = await this.resolveCslPath(options);
+		const csl = await this.resolveCslPath(options);
 		const outName = `${file.basename}.${options.format}`;
 
 		// Work through the OS temp dir, then import the result into the vault
@@ -237,10 +238,11 @@ export class ExportService {
 		const fs = nodeRequire('node:fs/promises') as FsPromises;
 		const nodePath = nodeRequire('node:path') as NodePath;
 		const os = nodeRequire('node:os') as NodeOs;
-		const workDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'researchvault-export-'));
-		const outAbs = nodePath.join(workDir, outName);
+		let workDir: string | null = null;
 
 		try {
+			workDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'researchvault-export-'));
+			const outAbs = nodePath.join(workDir, outName);
 			const adapter = this.plugin.app.vault.adapter as unknown as { getBasePath(): string };
 			const vaultRoot = adapter.getBasePath();
 			const noteAbs = nodePath.join(vaultRoot, file.path);
@@ -249,7 +251,7 @@ export class ExportService {
 			const args = buildPandocArgs({
 				noteAbsPath: noteAbs,
 				bibliographyAbsPath: nodePath.join(vaultRoot, bib),
-				cslAbsPath: cslPath,
+				cslAbsPath: csl.path,
 				format: options.format,
 				outputAbsPath: outAbs,
 			});
@@ -269,8 +271,15 @@ export class ExportService {
 			const outputAbsPath = nodePath.join(vaultRoot, targetPath);
 			return { outputPath: targetPath, outputAbsPath, format: options.format };
 		} finally {
-			// Best-effort temp cleanup; a leaked temp file is harmless.
-			await fs.unlink(outAbs).catch(() => {});
+			// Both temp dirs are removed on every exit path — success, pandoc
+			// failure, or a vault write failure. Leaving them behind leaked two
+			// directories per export, unbounded.
+			if (workDir !== null) {
+				await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+			}
+			if (csl.tempDir !== null) {
+				await fs.rm(csl.tempDir, { recursive: true, force: true }).catch(() => {});
+			}
 		}
 	}
 
@@ -296,8 +305,12 @@ export class ExportService {
 	 * Materialise the CSL file for this run. Built-ins are inflated from the
 	 * compressed bundle into a temp file; `custom` is copied out of the vault.
 	 * Either way pandoc reads a real filesystem path (desktop only).
+	 *
+	 * Returns the file path plus the temp directory it lives in (`null` when no
+	 * temp dir was created, i.e. the custom-style path). The caller owns
+	 * cleanup — see the `finally` in `exportNote`.
 	 */
-	private async resolveCslPath(options: ExportOptions): Promise<string> {
+	private async resolveCslPath(options: ExportOptions): Promise<{ path: string; tempDir: string | null }> {
 		const fs = nodeRequire('node:fs/promises') as FsPromises;
 		const nodePath = nodeRequire('node:path') as NodePath;
 		const os = nodeRequire('node:os') as NodeOs;
@@ -322,7 +335,7 @@ export class ExportService {
 		const dir = await fs.mkdtemp(nodePath.join(os.tmpdir(), 'researchvault-csl-'));
 		const cslPath = nodePath.join(dir, 'style.csl');
 		await fs.writeFile(cslPath, xml);
-		return cslPath;
+		return { path: cslPath, tempDir: dir };
 	}
 
 	/**
