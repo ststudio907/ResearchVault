@@ -156,12 +156,6 @@ export class ZoteroClient {
     );
   }
 
-  /** Probe the configured library; returns the number of visible items (0 on empty). */
-  async probe(opts: ZoteroFetchOpts = {}): Promise<number> {
-    const items = await this.fetchItems(1, opts);
-    return items.length >= 0 ? items.length : 0;
-  }
-
   private headers(s: ZoteroSettings): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',

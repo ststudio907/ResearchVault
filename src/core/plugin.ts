@@ -622,6 +622,7 @@ export class ResearchVaultPlugin extends Plugin {
   }
 
   onunload(): void {
+    delete (window as unknown as { researchVault?: ResearchVaultPlugin }).researchVault;
     this.vaultIndexer?.dispose();
     this.paperService?.dispose();
     this.synthesisService?.dispose();
