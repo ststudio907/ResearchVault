@@ -272,7 +272,7 @@ this.registerInterval(
 
 Agent behaviour in this repo is governed by repo-local instructions:
 
-- `dev/agents/standing-instructions.md` — the rules (R1–R16): one phase at a
+- `dev/agents/standing-instructions.md` — the rules (R1–R17): one phase at a
   time, scope lock, the gate sequence, the evidence format, commit and docs
   discipline.
 - `dev/handoffs/README.md` — what a session handoff contains, plus a template.

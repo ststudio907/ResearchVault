@@ -78,6 +78,23 @@ export function normaliseAuthorName(name: string): string {
 }
 
 /**
+ * 2.8.E — Normalise the parallel `authorFirstNames` array: trim every entry,
+ * pad a short array with '' (or truncate a long one) so its length always
+ * matches `authorCount`, and leave an absent array absent.
+ */
+export function normaliseFirstNames(
+  names: readonly string[] | undefined,
+  authorCount: number,
+): string[] | undefined {
+  if (names === undefined) return undefined;
+  const out: string[] = [];
+  for (let i = 0; i < authorCount; i += 1) {
+    out.push(normaliseAuthorName(names[i] ?? ''));
+  }
+  return out;
+}
+
+/**
  * 2.8.E — Read the legacy `authors: Author[]` frontmatter shape back into
  * the new `string[]` + `authorFirstNames?` shape. Used only by
  * `frontmatterToPaper` when an existing note predates 2.8.E.

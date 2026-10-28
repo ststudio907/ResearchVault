@@ -17,6 +17,7 @@ import {
   DEFAULT_PAPER_TEMPLATE,
   frontmatterToPaper,
   normaliseAuthorName,
+  normaliseFirstNames,
   renderQuoteSection,
   templateDataFor,
   toFrontmatter,
@@ -69,6 +70,24 @@ describe('normaliseAuthorName / trimOrUndefined', () => {
     expect(trimOrUndefined(undefined)).toBeUndefined();
     expect(trimOrUndefined(null)).toBeUndefined();
     expect(trimOrUndefined('  x ')).toBe('x');
+  });
+});
+
+describe('normaliseFirstNames', () => {
+  it('trims every entry', () => {
+    expect(normaliseFirstNames(['  Ashish ', ' Noam'], 2)).toEqual(['Ashish', 'Noam']);
+  });
+
+  it('pads a short array to the author count with empty strings', () => {
+    expect(normaliseFirstNames(['Ashish'], 3)).toEqual(['Ashish', '', '']);
+  });
+
+  it('truncates a long array to the author count', () => {
+    expect(normaliseFirstNames(['Ashish', 'Noam', 'Niki'], 2)).toEqual(['Ashish', 'Noam']);
+  });
+
+  it('leaves an absent array absent', () => {
+    expect(normaliseFirstNames(undefined, 3)).toBeUndefined();
   });
 });
 

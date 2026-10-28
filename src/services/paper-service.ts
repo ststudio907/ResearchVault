@@ -28,6 +28,7 @@ import {
   DEFAULT_PAPER_TEMPLATE,
   frontmatterToPaper,
   normaliseAuthorName,
+  normaliseFirstNames,
   renderQuoteSection,
   templateDataFor,
   toFrontmatter,
@@ -297,13 +298,7 @@ export class PaperService {
       citekey,
       title: input.title.trim(),
       authors: input.authors.map(normaliseAuthorName),
-      authorFirstNames: input.authorFirstNames
-        ? input.authorFirstNames.map((n) => n.trim()).map((_n, i) => {
-            // Pad missing entries (or shorter array) with empty strings so the
-            // two arrays stay the same length in memory and on disk.
-            return (input.authorFirstNames ?? [])[i] ?? '';
-          }).slice(0, input.authors.length)
-        : undefined,
+      authorFirstNames: normaliseFirstNames(input.authorFirstNames, input.authors.length),
       year: input.year,
       venue: trimOrUndefined(input.venue),
       volume: trimOrUndefined(input.volume),
