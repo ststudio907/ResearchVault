@@ -5,9 +5,9 @@
  * Asserts the small set of facts that keep the repo-local agent workflow honest,
  * so "the docs say X" is a gate result rather than an assurance:
  *
- *   1. dev/agents/standing-instructions.md contains the headings R1..R17.
+ *   1. dev/agents/standing-instructions.md contains the headings R1..R18.
  *   2. dev/agents/drift-check.md still says "Report only, fix nothing."
- *   3. AGENTS.md references all three agent files and says "R1–R17".
+ *   3. AGENTS.md references all three agent files and says "R1–R18".
  *
  * `dev/` is not tracked in the public repo (it is backed up in the private
  * `ResearchVault-dev` clone), so this is a LOCAL gate: when `dev/` is absent the
@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path';
 
 const ROOT = resolve('.');
 const DEV_DIR = join(ROOT, 'dev');
-const RULE_COUNT = 17;
+const RULE_COUNT = 18;
 
 const failures = [];
 
@@ -38,7 +38,7 @@ if (!existsSync(DEV_DIR)) {
 	process.exit(0);
 }
 
-// 1. Rules R1..R17 exist as headings.
+// 1. Rules R1..R18 exist as headings.
 const rulesPath = join(DEV_DIR, 'agents', 'standing-instructions.md');
 const rules = readOrFail('standing-instructions.md', rulesPath);
 if (rules !== null) {

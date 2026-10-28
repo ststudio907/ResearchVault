@@ -93,6 +93,13 @@ export class PaperService {
   /** Active in-memory record of the on-disk paper files, keyed by composite id. Recomputed by `hydrate()`. */
   private byId = new Map<string, Paper>();
   /**
+   * 1.1.3.A.1 — per-project membership index: `projectId` -> ids in the same
+   * insertion order as `byId`. Maintained only by `indexPaper` /
+   * `dropFromIndex` (and rebuilt by `hydrate`), so `getInProject` never
+   * allocates or scans the whole library on a list render.
+   */
+  private byProject = new Map<string, Set<string>>();
+  /**
    * Reverse index: lower-cased canonical note path (`<papersFolder>/<citekey>.md`) -> id.
    * Lets vault `rename`/`delete` handlers find a paper in O(1) even after the
    * file is gone (previously a linear scan that resolved files via the vault,
@@ -135,6 +142,7 @@ export class PaperService {
    */
   async hydrate(): Promise<void> {
     this.byId.clear();
+    this.byProject.clear();
     this.pathToId.clear();
 
     for (const project of this.plugin.settings.projects) {
@@ -202,8 +210,21 @@ export class PaperService {
     return undefined;
   }
 
+  /**
+   * 1.1.3.A.1 — only this project's papers, in `byId` insertion order.
+   * Reads the per-project set instead of `getAll().filter(...)`; the sidebar
+   * calls this twice per render, and `renderList` fires on every 80 ms
+   * keystroke debounce plus paper/index events.
+   */
   getInProject(projectId: string): Paper[] {
-    return this.getAll().filter((p) => p.customFields['projectId'] === projectId);
+    const ids = this.byProject.get(projectId);
+    if (!ids) return [];
+    const papers: Paper[] = [];
+    for (const id of ids) {
+      const paper = this.byId.get(id);
+      if (paper) papers.push(paper);
+    }
+    return papers;
   }
 
   // -------------------------------------------------------------------------
@@ -571,16 +592,44 @@ export class PaperService {
     const paper = this.byId.get(paperId);
     if (!paper) return;
     this.byId.delete(paperId);
+    const projectId = this.projectIdOf(paper);
+    if (projectId !== undefined) {
+      const ids = this.byProject.get(projectId);
+      if (ids) {
+        ids.delete(paperId);
+        if (ids.size === 0) this.byProject.delete(projectId);
+      }
+    }
     const path = canonicalPathOf(paper);
     if (path) this.pathToId.delete(path.toLowerCase());
   }
 
-  /** Insert or replace a paper in `byId` and the path reverse index. */
+  /**
+   * Insert or replace a paper in `byId`, the path reverse index, and the
+   * per-project membership set. The drop-then-add mirrors `byId` so a
+   * replaced/moved paper lands at the end in both structures and insertion
+   * order stays identical to `getAll()`.
+   */
   private indexPaper(paper: Paper): void {
     if (this.byId.has(paper.id)) this.dropFromIndex(paper.id);
     this.byId.set(paper.id, paper);
+    const projectId = this.projectIdOf(paper);
+    if (projectId !== undefined) {
+      let ids = this.byProject.get(projectId);
+      if (!ids) {
+        ids = new Set<string>();
+        this.byProject.set(projectId, ids);
+      }
+      ids.add(paper.id);
+    }
     const path = canonicalPathOf(paper);
     if (path) this.pathToId.set(path.toLowerCase(), paper.id);
+  }
+
+  /** `customFields.projectId` when it is a non-empty string. */
+  private projectIdOf(paper: Paper): string | undefined {
+    const projectId = paper.customFields['projectId'];
+    return typeof projectId === 'string' && projectId.length > 0 ? projectId : undefined;
   }
 
   /**
