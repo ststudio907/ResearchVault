@@ -18,6 +18,12 @@ import type { ResearchVaultPlugin } from '../core/plugin';
 
 /** Filters surfaced in search UI. Kept in this file because only the indexer consumes them. */
 export interface SearchFilters {
+  /**
+   * 1.1.3.A.2 — restrict the candidate set to one project. Applied before
+   * fuzzy scoring so papers from other projects are never scored. `undefined`
+   * means "every project"; an empty string matches papers with no project.
+   */
+  projectId?: string;
   status?: ReadingStatus[];
   year?: { min?: number; max?: number };
   authors?: string[];
@@ -121,19 +127,29 @@ export class VaultIndexer {
    * Fuzzy search across all indexed papers. The `query` is matched against
    * weighted fields (title, authors, keywords, quotes, citekey, venue) via
    * Obsidian's `prepareFuzzySearch`; the optional `filters` are applied as a
-   * post-filter on the match set.
+   * post-filter on the match set. A `filters.projectId` is different: it
+   * prunes the candidate set before scoring, so scoped searches never pay
+   * the fuzzy cost for other projects' papers.
    */
   searchPapers(query: string, filters?: SearchFilters): Paper[] {
     const trimmed = query.trim();
+    const projectId = filters?.projectId;
     let candidates: Array<{ item: IndexedPaper; score: number }>;
 
     if (!trimmed) {
-      // No query: return every paper (still subject to filters).
-      candidates = [...this.byId.values()].map((item) => ({ item, score: 0 }));
+      // No query: return every paper (still subject to filters). Project
+      // scoping still applies, in the indexer's stable sorted order.
+      candidates = [];
+      for (const item of this.byId.values()) {
+        if (projectId !== undefined && item.projectId !== projectId) continue;
+        candidates.push({ item, score: 0 });
+      }
     } else {
       const fuzzy = prepareFuzzySearch(trimmed);
       candidates = [];
       for (const item of this.byId.values()) {
+        // Skip other projects BEFORE fuzzy scoring (1.1.3.A.2).
+        if (projectId !== undefined && item.projectId !== projectId) continue;
         const score = fuzzyScore(fuzzy, item);
         if (score !== null) candidates.push({ item, score });
       }

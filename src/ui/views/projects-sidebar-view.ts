@@ -278,18 +278,12 @@ export class ProjectsSidebarView extends ItemView {
     // hidden everywhere (§7.6 semantics).
     const visible = applyFilters(papers, this.filterState);
 
-    // When the user has typed a query, the indexer gives us a fuzzy-matched
-    // subset across the whole vault. We still constrain by active project
-    // membership at render time so the user never sees a paper from a
-    // different project mixed in.
+    // When the user has typed a query, scope to the active project at the
+    // indexer level so we don't scan other projects' papers.
     const trimmed = this.currentQuery.trim();
     if (trimmed) {
-      const hits = this.rv.vaultIndexer.searchPapers(trimmed);
-      const activePapers = new Set(visible.map((p) => p.id));
-      const scoped = sortPapers(
-        hits.filter((p) => activePapers.has(p.id)),
-        this.filterState,
-      );
+      const hits = this.rv.vaultIndexer.searchPapers(trimmed, { projectId: active.id });
+      const scoped = sortPapers(applyFilters(hits, this.filterState), this.filterState);
       if (scoped.length === 0) {
         listEl.createEl('p', {
           text: `No papers match "${trimmed}" in this project.`,
